@@ -151,6 +151,12 @@ canvas.pan:active{cursor:grabbing;}
         <button class="tool-btn" id="tb-erase" onclick="clearRoom()" style="text-align:left;padding:8px 12px;width:100%;border-radius:8px;color:#ef4444;">🗑 Raum löschen</button>
       </div>
       <p style="font-size:.72rem;color:#94a3b8;margin-top:10px;">Klicken um Eckpunkte zu setzen. Doppelklick zum Schließen.</p>
+
+      <div class="section-title" style="margin-top:16px;">Projekt</div>
+      <div style="display:flex;gap:6px;">
+        <button class="add-btn" style="flex:1;" onclick="saveProject()">💾 Speichern</button>
+        <button class="add-btn" style="flex:1;" onclick="loadProject()">📂 Laden</button>
+      </div>
     </div>
 
     <!-- Layout -->
@@ -233,7 +239,6 @@ canvas.pan:active{cursor:grabbing;}
   <button class="stab active" onclick="showMobilePanel('draw',this)"><span class="mtab-icon">✏️</span>Zeichnen</button>
   <button class="stab" onclick="showMobilePanel('layout',this)"><span class="mtab-icon">📐</span>Layout</button>
   <button class="stab" onclick="showMobilePanel('rooms',this)"><span class="mtab-icon">🏠</span>Räume</button>
-  <button class="stab" onclick="showMobilePanel('floorplan',this)"><span class="mtab-icon">🗺️</span>Grundriss</button>
   <button class="stab" onclick="showMobilePanel('list',this)"><span class="mtab-icon">📋</span>Liste</button>
 </div>
 
@@ -247,11 +252,27 @@ canvas.pan:active{cursor:grabbing;}
     <button class="orient-btn" style="flex:0 0 auto;color:#ef4444;" onclick="clearRoom();closeMobilePanel()">🗑 Löschen</button>
   </div>
   <p style="font-size:.72rem;color:#94a3b8;margin-top:8px;">Tippen um Eckpunkte zu setzen. Doppeltippen zum Schließen.</p>
+
   <div style="margin-top:12px;border-top:1px solid #e2e8f0;padding-top:10px;">
     <b style="font-size:.85rem;">Grundriss</b>
-    <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
-      <button class="orient-btn" style="flex:0 0 auto;" onclick="document.getElementById('bg-upload').click();closeMobilePanel()">📎 Importieren</button>
-      <button class="orient-btn" style="flex:0 0 auto;" onclick="startCalib();closeMobilePanel()">📏 Kalibrieren</button>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
+      <button class="gen-btn" onclick="document.getElementById('bg-upload').click();closeMobilePanel()">📎 Bild / PDF importieren</button>
+      <button class="gen-btn" style="background:#0f766e;" onclick="startCalib();closeMobilePanel()">📏 Maßstab kalibrieren</button>
+      <div id="m-bg-controls" style="display:none;flex-direction:column;gap:6px;">
+        <label style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+          <span style="font-size:.8rem;color:#475569;white-space:nowrap;">Transparenz</span>
+          <input type="range" min="10" max="100" value="40" style="flex:1;" oninput="state.bgOpacity=this.value/100;render()">
+        </label>
+        <button class="add-btn" style="color:#ef4444;border-color:#fca5a5;" onclick="removeBg();closeMobilePanel()">✕ Grundriss entfernen</button>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:12px;border-top:1px solid #e2e8f0;padding-top:10px;">
+    <b style="font-size:.85rem;">Projekt</b>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <button class="gen-btn" style="flex:1;" onclick="saveProject();closeMobilePanel()">💾 Speichern</button>
+      <button class="gen-btn" style="flex:1;background:#0f766e;" onclick="loadProject();closeMobilePanel()">📂 Laden</button>
     </div>
   </div>
 </div>
@@ -284,22 +305,6 @@ canvas.pan:active{cursor:grabbing;}
   <button class="add-btn" style="margin-top:8px;" onclick="addRoom();closeMobilePanel()">+ Raum hinzufügen</button>
 </div>
 
-<div class="mobile-panel hidden" id="mp-floorplan">
-  <div class="mp-handle" onclick="closeMobilePanel()"></div>
-  <b style="font-size:.9rem;">Grundriss</b>
-  <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px;">
-    <button class="gen-btn" onclick="document.getElementById('bg-upload').click();closeMobilePanel()">📎 Bild / PDF importieren</button>
-    <button class="gen-btn" style="background:#0f766e;" onclick="startCalib();closeMobilePanel()">📏 Maßstab kalibrieren</button>
-    <div id="m-bg-controls" style="display:none;">
-      <label style="display:flex;align-items:center;gap:8px;margin-top:4px;">
-        <span style="font-size:.8rem;color:#475569;white-space:nowrap;">Transparenz</span>
-        <input type="range" min="10" max="100" value="40" style="flex:1;" oninput="state.bgOpacity=this.value/100;render()">
-      </label>
-      <button class="add-btn" style="color:#ef4444;border-color:#fca5a5;margin-top:8px;" onclick="removeBg();closeMobilePanel()">✕ Grundriss entfernen</button>
-    </div>
-  </div>
-  <p style="font-size:.72rem;color:#94a3b8;margin-top:10px;">Importiere einen Grundriss und kalibriere den Maßstab, bevor du den Raum einzeichnest.</p>
-</div>
 
 <div class="mobile-panel hidden" id="mp-list">
   <div class="mp-handle" onclick="closeMobilePanel()"></div>
@@ -1717,7 +1722,7 @@ function showSideTab(name, btn) {
 let activeMobilePanel = null;
 
 function showMobilePanel(name, btn) {
-  const panels = { draw: 'mp-draw', layout: 'mp-layout', rooms: 'mp-rooms', floorplan: 'mp-floorplan', list: 'mp-list' };
+  const panels = { draw: 'mp-draw', layout: 'mp-layout', rooms: 'mp-rooms', list: 'mp-list' };
   const pid = panels[name];
   const panel = document.getElementById(pid);
   if (!panel) return;
@@ -1913,8 +1918,8 @@ function setBgImage(img) {
   state.vpScale = Math.min((W * 0.9) / img.width, (H * 0.9) / img.height);
   state.vpX = -(W / state.vpScale - img.width)  / 2;
   state.vpY = -(H / state.vpScale - img.height) / 2;
-  document.getElementById('bg-controls').style.display = 'block';
-  document.getElementById('m-bg-controls').style.display = 'block';
+  document.getElementById('bg-controls').style.display   = 'block';
+  document.getElementById('m-bg-controls').style.display = 'flex';
   render();
   // Auto-start calibration so user doesn't forget
   setTimeout(() => startCalib(), 100);
@@ -1922,9 +1927,114 @@ function setBgImage(img) {
 
 function removeBg() {
   state.bgImage = null;
+  state.bgDataUrl = null;
   document.getElementById('bg-controls').style.display = 'none';
   document.getElementById('m-bg-controls').style.display = 'none';
   render();
+}
+
+// ════════════════════════════════════════════════════
+// SAVE / LOAD PROJECT
+// ════════════════════════════════════════════════════
+function saveProject() {
+  // Serialize bgImage to a data URL so it can be saved
+  let bgDataUrl = null;
+  if (state.bgImage) {
+    try {
+      const off = document.createElement('canvas');
+      off.width  = state.bgImage.width;
+      off.height = state.bgImage.height;
+      off.getContext('2d').drawImage(state.bgImage, 0, 0);
+      bgDataUrl = off.toDataURL('image/jpeg', 0.85);
+    } catch(e) { /* cross-origin image, skip */ }
+  }
+
+  const data = {
+    version: 1,
+    rooms: state.rooms,
+    activeRoom: state.activeRoom,
+    bgDataUrl,
+    bgOpacity: state.bgOpacity,
+    bgMmPerPx: state.bgMmPerPx,
+    bgOffsetX: state.bgOffsetX,
+    bgOffsetY: state.bgOffsetY,
+    vpScale: state.vpScale,
+    vpX: state.vpX,
+    vpY: state.vpY,
+    orientation: state.orientation,
+    plateType: state.plateType,
+    pipeEntry: state.pipeEntry,
+    pipeEntryAtMin: state.pipeEntryAtMin,
+    offsetX: state.offsetX,
+    offsetY: state.offsetY,
+    layout: state.layout,
+  };
+
+  const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = 'heizkreis-planer.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function loadProject() {
+  const input = document.createElement('input');
+  input.type   = 'file';
+  input.accept = '.json,application/json';
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    let data;
+    try { data = JSON.parse(await file.text()); } catch(ex) { alert('Ungültige Datei.'); return; }
+    if (data.version !== 1) { alert('Unbekanntes Format.'); return; }
+
+    state.rooms        = data.rooms        || [{ id:1, name:'Raum 1', vertices:[], color:'#3b82f6' }];
+    state.activeRoom   = data.activeRoom   || 0;
+    state.bgOpacity    = data.bgOpacity    ?? 0.4;
+    state.bgMmPerPx    = data.bgMmPerPx   ?? 1;
+    state.bgOffsetX    = data.bgOffsetX   ?? 0;
+    state.bgOffsetY    = data.bgOffsetY   ?? 0;
+    state.vpScale      = data.vpScale      || 0.3;
+    state.vpX          = data.vpX          || 0;
+    state.vpY          = data.vpY          || 0;
+    state.orientation  = data.orientation  || 0;
+    state.plateType    = data.plateType    || 'maander';
+    state.pipeEntry    = data.pipeEntry    || null;
+    state.pipeEntryAtMin = data.pipeEntryAtMin !== false;
+    state.offsetX      = data.offsetX      || 0;
+    state.offsetY      = data.offsetY      || 0;
+    state.layout       = data.layout       || null;
+
+    if (data.bgDataUrl) {
+      const img = new Image();
+      img.onload = () => {
+        state.bgImage = img;
+        document.getElementById('bg-controls').style.display   = 'block';
+        document.getElementById('m-bg-controls').style.display = 'flex';
+        renderRoomList();
+        render();
+      };
+      img.src = data.bgDataUrl;
+    } else {
+      state.bgImage = null;
+      document.getElementById('bg-controls').style.display   = 'none';
+      document.getElementById('m-bg-controls').style.display = 'none';
+      renderRoomList();
+      render();
+    }
+
+    // Sync orientation buttons
+    document.getElementById('ori-0').classList.toggle('active', state.orientation === 0);
+    document.getElementById('ori-90').classList.toggle('active', state.orientation !== 0);
+    document.getElementById('sel-plate').value = state.plateType;
+    document.getElementById('off-x').value = state.offsetX;
+    document.getElementById('off-y').value = state.offsetY;
+    if (document.getElementById('bg-opacity'))
+      document.getElementById('bg-opacity').value = Math.round(state.bgOpacity * 100);
+  };
+  input.click();
 }
 
 // ════════════════════════════════════════════════════
