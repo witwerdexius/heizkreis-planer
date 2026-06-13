@@ -523,6 +523,11 @@ function generateLayout() {
     alert('Bitte zuerst einen Raum zeichnen (mind. 3 Eckpunkte).');
     return;
   }
+  // Warn if floor plan is loaded but not calibrated
+  if (state.bgImage && state.bgMmPerPx === 1) {
+    const go = confirm('⚠️ Grundriss nicht kalibriert!\n\nDie berechnete Raumfläche wird falsch sein.\n\nBitte erst Maßstab kalibrieren (Grundriss-Tab → 📏 Maßstab kalibrieren).\n\nTrotzdem berechnen?');
+    if (!go) { startCalib(); return; }
+  }
 
   // Sync mobile inputs
   const mSel = document.getElementById('m-sel-plate');
@@ -1430,6 +1435,8 @@ function setBgImage(img) {
   document.getElementById('bg-controls').style.display = 'block';
   document.getElementById('m-bg-controls').style.display = 'block';
   render();
+  // Auto-start calibration so user doesn't forget
+  setTimeout(() => startCalib(), 100);
 }
 
 function removeBg() {
