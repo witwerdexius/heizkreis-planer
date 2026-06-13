@@ -881,6 +881,143 @@ function getPolygonXAtY(poly, wy) {
   return xs.sort((a, b) => a - b);
 }
 
+// ════════════════════════════════════════════════════
+// SCHNECKE (SPIRAL) PIPE ROUTING
+// ════════════════════════════════════════════════════
+function drawSchneckePipes() {
+  const room = state.rooms[state.activeRoom];
+  const pts  = ensureClockwise(room.vertices);
+  const xs   = pts.map(p => p.x), ys = pts.map(p => p.y);
+  const xMin = Math.min(...xs), xMax = Math.max(...xs);
+  const yMin = Math.min(...ys), yMax = Math.max(...ys);
+
+  // Entry side: left (xMin) or right (xMax)
+  let entryAtXMin = true;
+  if (state.pipeEntry) entryAtXMin = state.pipeEntry.x < (xMin + xMax) / 2;
+
+  const cc = 150;
+  const inL = entryAtXMin ? ENTRY_INSET : PIPE_MARGIN;
+  const inR = entryAtXMin ? PIPE_MARGIN  : ENTRY_INSET;
+
+  // Build concentric rectangular layers
+  const layers = [];
+  for (let n = 0; ; n++) {
+    const xl = xMin + inL + n * cc;
+    const xr = xMax - inR - n * cc;
+    const yt = yMin + PIPE_MARGIN + n * cc;
+    const yb = yMax - PIPE_MARGIN - n * cc;
+    if (xr - xl < cc / 2 || yb - yt < cc / 2) break;
+    layers.push({ xl, xr, yt, yb });
+  }
+  if (!layers.length) return;
+
+  // Build the spiral polyline.
+  // For entryAtXMin: start at (xl0, yb0), go CCW (↑ left → top → ↓ right → partial bottom → step up on left side)
+  // For entryAtXMax: start at (xr0, yb0), go CW  (↑ right → top → ↓ left → partial bottom → step up on right side)
+  const wpts = [];
+  for (let i = 0; i < layers.length; i++) {
+    const { xl, xr, yt, yb } = layers[i];
+    if (i === 0) wpts.push({ x: entryAtXMin ? xl : xr, y: yb });
+
+    if (entryAtXMin) {
+      wpts.push({ x: xl, y: yt });   // ↑ up left side
+      wpts.push({ x: xr, y: yt });   // → right along top
+      wpts.push({ x: xr, y: yb });   // ↓ down right side
+
+      if (i < layers.length - 1) {
+        const nxt = layers[i + 1];
+        wpts.push({ x: nxt.xl, y: yb });    // ← along bottom to next layer's xl
+        wpts.push({ x: nxt.xl, y: nxt.yb }); // ↑ step up to next layer's yb
+      }
+    } else {
+      wpts.push({ x: xr, y: yt });   // ↑ up right side
+      wpts.push({ x: xl, y: yt });   // ← left along top
+      wpts.push({ x: xl, y: yb });   // ↓ down left side
+
+      if (i < layers.length - 1) {
+        const nxt = layers[i + 1];
+        wpts.push({ x: nxt.xr, y: yb });    // → along bottom to next layer's xr
+        wpts.push({ x: nxt.xr, y: nxt.yb }); // ↑ step up to next layer's yb
+      }
+    }
+  }
+
+  // Draw spiral
+  ctx.save();
+  ctx.strokeStyle = COLORS.pipe;
+  ctx.lineWidth   = Math.max(1.5, state.vpScale * 5);
+  ctx.lineJoin    = 'round';
+  ctx.lineCap     = 'round';
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  const sp0 = w2s(wpts[0].x, wpts[0].y);
+  ctx.moveTo(sp0.x, sp0.y);
+  for (let i = 1; i < wpts.length; i++) {
+    const sp = w2s(wpts[i].x, wpts[i].y);
+    ctx.lineTo(sp.x, sp.y);
+  }
+  ctx.stroke();
+
+  // Entry/exit dots and manifold connection
+  const startW = wpts[0];
+  const endW   = wpts[wpts.length - 1];
+  const startS = w2s(startW.x, startW.y);
+  const endS   = w2s(endW.x,   endW.y);
+  const dotR   = Math.max(5, state.vpScale * 12);
+
+  if (state.pipeEntry) {
+    const mpt  = w2s(state.pipeEntry.x, state.pipeEntry.y);
+    const lw   = Math.max(1.5, state.vpScale * 5);
+    ctx.lineWidth = lw;
+
+    // Corridor along entry wall at PIPE_MARGIN from the wall
+    const corrX = entryAtXMin ? xMin + PIPE_MARGIN : xMax - PIPE_MARGIN;
+    const cMani = w2s(corrX, state.pipeEntry.y);
+    const cStrt = w2s(corrX, startW.y);
+    const cEnd  = w2s(corrX, endW.y);
+
+    // Supply (green): manifold → corridor → spiral start
+    ctx.strokeStyle = '#10b981';
+    ctx.beginPath();
+    ctx.moveTo(mpt.x,   mpt.y);
+    ctx.lineTo(cMani.x, cMani.y);
+    ctx.lineTo(cStrt.x, cStrt.y);
+    ctx.lineTo(startS.x, startS.y);
+    ctx.stroke();
+
+    // Return (red): spiral end → corridor → manifold
+    ctx.strokeStyle = '#ef4444';
+    ctx.beginPath();
+    ctx.moveTo(endS.x,  endS.y);
+    ctx.lineTo(cEnd.x,  cEnd.y);
+    ctx.lineTo(cMani.x, cMani.y);
+    ctx.lineTo(mpt.x,   mpt.y);
+    ctx.stroke();
+
+    // Manifold marker
+    const mR = Math.max(7, state.vpScale * 14);
+    ctx.lineWidth = 2;
+    ctx.fillStyle = '#10b981';
+    ctx.beginPath(); ctx.arc(mpt.x, mpt.y, mR, Math.PI, 0); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#ef4444';
+    ctx.beginPath(); ctx.arc(mpt.x, mpt.y, mR, 0, Math.PI); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.arc(mpt.x, mpt.y, mR, 0, Math.PI * 2); ctx.stroke();
+
+    ctx.fillStyle = '#10b981'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(startS.x, startS.y, dotR * 0.65, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#ef4444';
+    ctx.beginPath(); ctx.arc(endS.x,   endS.y,   dotR * 0.65, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  } else {
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+    ctx.fillStyle = '#10b981';
+    ctx.beginPath(); ctx.arc(startS.x, startS.y, dotR, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#ef4444';
+    ctx.beginPath(); ctx.arc(endS.x,   endS.y,   dotR, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
 // Full room-level mäander pipe routing.
 // orientation=0 (portrait): tracks run in Y direction, spaced along X.
 // orientation=1 (landscape): tracks run in X direction, spaced along Y.
@@ -888,6 +1025,9 @@ function drawPipeRouting() {
   if (!state.layout || !state.layout.placements.length) return;
   const room = state.rooms[state.activeRoom];
   if (room.vertices.length < 3) return;
+
+  // Dispatch to Schnecke if selected
+  if (state.plateType === 'schnecke') { drawSchneckePipes(); return; }
 
   const pts = ensureClockwise(room.vertices);
   const pw  = state.orientation === 0 ? PLATE_W : PLATE_H; // plate x-size
@@ -941,10 +1081,13 @@ function drawPipeRouting() {
     entryMin = entryCoord < (pipeMin + pipeMax) / 2;
   }
 
-  // Asymmetric insets: entry side needs extra corridor for Vorlauf/Rücklauf
-  // minInset = inset at the "min" pipe-coord wall; maxInset = inset at the "max" pipe-coord wall
-  const minInset = entryMin ? ENTRY_INSET : PIPE_MARGIN;
-  const maxInset = entryMin ? PIPE_MARGIN : ENTRY_INSET;
+  // Asymmetric insets:
+  //   Entry side  → ENTRY_INSET (100mm): corridor for Vorlauf/Rücklauf runs here
+  //   Turn  side  → PIPE_MARGIN + cc/2 (125mm): arc tip stays ≥ PIPE_MARGIN from wall
+  const ARC_R    = cc / 2;                   // 75mm — full semicircle between adjacent tracks
+  const TURN_INS = PIPE_MARGIN + ARC_R;      // 125mm on the U-turn wall
+  const minInset = entryMin ? ENTRY_INSET : TURN_INS;
+  const maxInset = entryMin ? TURN_INS : ENTRY_INSET;
 
   tracks.forEach((wc, idx) => {
     const segs = getSegs(wc);
@@ -973,14 +1116,14 @@ function drawPipeRouting() {
     const outerEnd   = down ? segs[segs.length - 1] - maxInset : segs[0] + minInset;
     const trackStart = down ? segs[0] + minInset : segs[segs.length - 1] - maxInset;
 
-    // Always draw a U-turn / elbow between consecutive tracks.
-    // Arc radius = PIPE_MARGIN so the arc just touches (never crosses) the wall.
-    // Short stubs (cc/2 - PIPE_MARGIN) bridge from the inset track endpoint to the arc start/end.
+    // U-turn arc between consecutive tracks.
+    // Arc radius = cc/2 = 75mm → full semicircle from prevCross to wc.
+    // Turn-side inset = PIPE_MARGIN + ARC_R = 125mm → arc tip is exactly PIPE_MARGIN from wall.
+    // Short vertical stubs bridge from track endpoint to elbowPos (needed for non-rectangular rooms).
     if (prevCross !== null && prevPipeEnd !== null) {
       const prevDown = !down;
       const midCross = (prevCross + wc) / 2;
-      const rArc     = PIPE_MARGIN;           // arc radius = 50mm → arc tip touches wall
-      const rPx      = rArc * state.vpScale;
+      const rPx      = ARC_R * state.vpScale;
 
       // Elbow position: further boundary for non-rectangular rooms
       const elbowPos = prevDown
@@ -992,37 +1135,28 @@ function drawPipeRouting() {
       ctx.setLineDash([]);
 
       const stroke = () => ctx.stroke();
-      const line   = (ax, ay, bx, by) => {
-        const sa = pipeAlongY ? w2s(ax, ay) : w2s(ay, ax);
-        const sb = pipeAlongY ? w2s(bx, by) : w2s(by, bx);
+      // line() helper: coords are (pipe, cross) for both orientations
+      const linePC = (p1, c1, p2, c2) => {
+        const sa = pipeAlongY ? w2s(c1, p1) : w2s(p1, c1);
+        const sb = pipeAlongY ? w2s(c2, p2) : w2s(p2, c2);
         if (Math.hypot(sb.x - sa.x, sb.y - sa.y) < 0.5) return;
         ctx.beginPath(); ctx.moveTo(sa.x, sa.y); ctx.lineTo(sb.x, sb.y); stroke();
       };
 
       if (pipeAlongY) {
-        // Portrait: cross=X, pipe=Y, arc center at (midCross, elbowPos)
-        // arcLeft/Right are the x-positions where the arc meets the horizontal stub
-        const arcLeft  = midCross - rArc;
-        const arcRight = midCross + rArc;
-
-        line(prevCross, prevPipeEnd, prevCross, elbowPos);   // vertical elbow-boundary stub
-        line(prevCross, elbowPos, arcLeft, elbowPos);        // horizontal pre-arc stub
+        // Portrait: cross=X, pipe=Y
+        // Arc center at (midCross_X, elbowPos_Y). Arc spans from prevCross to wc (radius=cc/2).
+        linePC(prevPipeEnd, prevCross, elbowPos, prevCross);  // pipe-direction stub to elbowPos
         const cs = w2s(midCross, elbowPos);
         ctx.beginPath(); ctx.arc(cs.x, cs.y, rPx, Math.PI, 0, !prevDown); stroke();
-        line(arcRight, elbowPos, wc, elbowPos);              // horizontal post-arc stub
-        line(wc, elbowPos, wc, trackStart);                  // vertical elbow-boundary stub
+        linePC(elbowPos, wc, trackStart, wc);                 // pipe-direction stub from elbowPos
       } else {
-        // Landscape: cross=Y, pipe=X, arc center at (elbowPos, midCross)
-        // arcTop/Bot are the y-positions where the arc meets the vertical stub
-        const arcTop = midCross - rArc;
-        const arcBot = midCross + rArc;
-
-        line(prevPipeEnd, prevCross, elbowPos, prevCross);   // horizontal elbow-boundary stub
-        line(elbowPos, prevCross, elbowPos, arcTop);         // vertical pre-arc stub
+        // Landscape: cross=Y, pipe=X
+        // Arc center at (elbowPos_X, midCross_Y).
+        linePC(prevPipeEnd, prevCross, elbowPos, prevCross);  // pipe-direction stub to elbowPos
         const cs = w2s(elbowPos, midCross);
         ctx.beginPath(); ctx.arc(cs.x, cs.y, rPx, -Math.PI / 2, Math.PI / 2, !prevDown); stroke();
-        line(elbowPos, arcBot, elbowPos, wc);                // vertical post-arc stub
-        line(elbowPos, wc, trackStart, wc);                  // horizontal elbow-boundary stub
+        linePC(elbowPos, wc, trackStart, wc);                 // pipe-direction stub from elbowPos
       }
     }
 
