@@ -501,6 +501,18 @@ function ensureClockwise(pts) {
 function polyArea(pts) {
   return polygonArea(pts);
 }
+// Grid-sampling for plate coverage — works for ANY polygon shape (convex or not).
+// Returns the area of the plate that lies inside the room polygon.
+function sampledPlateArea(px, py, pw, ph, room, n = 12) {
+  let inside = 0;
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      const p = { x: px + pw * (i + 0.5) / n, y: py + ph * (j + 0.5) / n };
+      if (pointInPolygon(p, room)) inside++;
+    }
+  }
+  return inside / (n * n) * (pw * ph);
+}
 
 // ════════════════════════════════════════════════════
 // LAYOUT ENGINE
@@ -547,23 +559,21 @@ function generateLayout() {
 
   for (let gy = startY; gy < maxY; gy += ph) {
     for (let gx = startX; gx < maxX; gx += pw) {
-      const plate = rectPoly(gx, gy, pw, ph);
-      const clipped = clipPolygon(plate, pts);
-      if (!clipped.length) continue;
+      const plate      = rectPoly(gx, gy, pw, ph);
+      const plateArea  = pw * ph;
 
-      const clippedArea = polyArea(clipped);
-      const plateArea   = pw * ph;
+      // Use grid-sampling for correct area on any polygon shape
+      const clippedArea = sampledPlateArea(gx, gy, pw, ph, pts);
       const ratio = clippedArea / plateArea;
+      if (ratio < 0.005) continue; // skip slivers
 
-      if (ratio < 0.005) continue; // ignore slivers
+      // S-H clipping for visual display (best-effort — ok for convex rooms;
+      // for non-convex rooms we fall back to drawing the full plate outline)
+      let clipped = clipPolygon(plate, pts);
+      if (!clipped.length) clipped = plate; // non-convex fallback: draw full plate
 
-      const isFull = ratio > 0.995;
-      placements.push({
-        x: gx, y: gy, w: pw, h: ph,
-        clipped,
-        isFull,
-        area: clippedArea,
-      });
+      const isFull = ratio > 0.99;
+      placements.push({ x: gx, y: gy, w: pw, h: ph, clipped, isFull, area: clippedArea });
       if (isFull) { fullCount++; fullArea += plateArea; }
       else        { cutCount++;  cutArea  += plateArea; }
     }
@@ -622,12 +632,9 @@ function optimizeLayout() {
       let cut = 0;
       for (let gy = startY; gy < maxY; gy += ph) {
         for (let gx = startX; gx < maxX; gx += pw) {
-          const plate = rectPoly(gx, gy, pw, ph);
-          const clipped = clipPolygon(plate, pts);
-          if (!clipped.length) continue;
-          const ratio = polyArea(clipped) / (pw * ph);
+          const ratio = sampledPlateArea(gx, gy, pw, ph, pts, 8) / (pw * ph);
           if (ratio < 0.005) continue;
-          if (ratio < 0.995) cut++;
+          if (ratio < 0.99) cut++;
         }
       }
       if (cut < bestWaste) { bestWaste = cut; bestOX = ox; bestOY = oy; }
