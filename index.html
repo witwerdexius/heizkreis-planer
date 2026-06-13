@@ -88,7 +88,9 @@ canvas.pan:active{cursor:grabbing;}
 @media(max-width:640px){
   aside{display:none;}
   .mobile-tabs{display:flex;}
-  .mobile-panel{position:absolute;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #e2e8f0;padding:16px;z-index:20;max-height:60vh;overflow-y:auto;border-radius:16px 16px 0 0;box-shadow:0 -4px 20px rgba(0,0,0,.15);}
+  .mobile-panel{position:absolute;bottom:56px;left:0;right:0;background:#fff;border-top:1px solid #e2e8f0;padding:12px 16px 16px;z-index:20;max-height:55vh;overflow-y:auto;border-radius:16px 16px 0 0;box-shadow:0 -4px 20px rgba(0,0,0,.15);}
+  .mp-handle{width:36px;height:4px;background:#cbd5e1;border-radius:2px;margin:0 auto 12px;cursor:pointer;}
+
   .mobile-panel.hidden{display:none;}
   .list-panel{display:none !important;}
   .canvas-wrap{border-radius:0;}
@@ -235,6 +237,7 @@ canvas.pan:active{cursor:grabbing;}
 
 <!-- Mobile panels -->
 <div class="mobile-panel hidden" id="mp-draw">
+  <div class="mp-handle" onclick="closeMobilePanel()"></div>
   <b style="font-size:.9rem;">Werkzeuge</b>
   <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
     <button class="orient-btn active" style="flex:0 0 auto;" onclick="setTool('draw');closeMobilePanel()">✏️ Zeichnen</button>
@@ -252,6 +255,7 @@ canvas.pan:active{cursor:grabbing;}
 </div>
 
 <div class="mobile-panel hidden" id="mp-layout">
+  <div class="mp-handle" onclick="closeMobilePanel()"></div>
   <b style="font-size:.9rem;">Layout</b>
   <div style="margin-top:10px;">
     <label>Muster</label>
@@ -270,12 +274,14 @@ canvas.pan:active{cursor:grabbing;}
 </div>
 
 <div class="mobile-panel hidden" id="mp-rooms">
+  <div class="mp-handle" onclick="closeMobilePanel()"></div>
   <b style="font-size:.9rem;">Räume</b>
   <div id="m-room-list" style="margin-top:10px;"></div>
   <button class="add-btn" style="margin-top:8px;" onclick="addRoom();closeMobilePanel()">+ Raum hinzufügen</button>
 </div>
 
 <div class="mobile-panel hidden" id="mp-floorplan">
+  <div class="mp-handle" onclick="closeMobilePanel()"></div>
   <b style="font-size:.9rem;">Grundriss</b>
   <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px;">
     <button class="gen-btn" onclick="document.getElementById('bg-upload').click();closeMobilePanel()">📎 Bild / PDF importieren</button>
@@ -292,6 +298,7 @@ canvas.pan:active{cursor:grabbing;}
 </div>
 
 <div class="mobile-panel hidden" id="mp-list">
+  <div class="mp-handle" onclick="closeMobilePanel()"></div>
   <b style="font-size:.9rem;">Stückliste</b>
   <div id="m-list-grid" class="list-grid" style="margin-top:10px;"></div>
 </div>
