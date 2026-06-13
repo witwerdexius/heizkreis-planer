@@ -794,65 +794,164 @@ function drawRoom(room, isActive) {
 }
 
 function drawLayout() {
-  const pw = state.orientation === 0 ? PLATE_W : PLATE_H;
-  const ph = state.orientation === 0 ? PLATE_H : PLATE_W;
-
   state.layout.placements.forEach(p => {
     ctx.save();
     const clipped = p.clipped.map(pt => w2s(pt.x, pt.y));
-
     ctx.beginPath();
     ctx.moveTo(clipped[0].x, clipped[0].y);
     for (let i = 1; i < clipped.length; i++) ctx.lineTo(clipped[i].x, clipped[i].y);
     ctx.closePath();
-
     ctx.fillStyle   = p.isFull ? COLORS.full : COLORS.cut;
     ctx.strokeStyle = p.isFull ? COLORS.fullEdge : COLORS.cutEdge;
     ctx.lineWidth = 1;
     ctx.fill();
     ctx.stroke();
 
-    // Groove pattern
-    if (state.vpScale > 0.15) {
-      drawGroovePattern(p);
+    // Schnecke: per-plate spiral when zoomed in
+    if (state.plateType !== 'maander' && state.vpScale > 0.15) {
+      drawSchneckePattern(p);
     }
-
     ctx.restore();
   });
+
+  // Mäander: room-level continuous pipe routing
+  if (state.plateType === 'maander' && state.vpScale > 0.05) {
+    drawPipeRouting();
+  }
 }
 
-function drawGroovePattern(p) {
+// Schnecke per-plate pattern (concentric rectangles)
+function drawSchneckePattern(p) {
   const pw = state.orientation === 0 ? PLATE_W : PLATE_H;
   const ph = state.orientation === 0 ? PLATE_H : PLATE_W;
-  const cc = 150;
+  const cc = 150, cx = p.x + pw / 2, cy = p.y + ph / 2;
+  ctx.save();
+  ctx.strokeStyle = COLORS.pipe;
+  ctx.lineWidth = Math.max(1, state.vpScale * 3);
+  ctx.setLineDash([]);
+  for (let r = cc; r < Math.min(pw, ph) / 2 - 10; r += cc) {
+    const s = w2s(cx - r, cy - r * (ph / pw));
+    const e = w2s(cx + r, cy + r * (ph / pw));
+    ctx.strokeRect(s.x, s.y, e.x - s.x, e.y - s.y);
+  }
+  ctx.restore();
+}
+
+// Returns sorted y-intersections of polygon with vertical line x=wx
+function getPolygonYAtX(poly, wx) {
+  const ys = [];
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length];
+    if (Math.abs(b.x - a.x) < 0.001) continue;
+    const xMin = Math.min(a.x, b.x), xMax = Math.max(a.x, b.x);
+    if (wx > xMin && wx <= xMax) {
+      ys.push(a.y + (b.y - a.y) * (wx - a.x) / (b.x - a.x));
+    }
+  }
+  return ys.sort((a, b) => a - b);
+}
+
+// Full room-level mäander pipe routing: continuous serpentine through all tracks
+function drawPipeRouting() {
+  if (!state.layout || !state.layout.placements.length) return;
+  const room = state.rooms[state.activeRoom];
+  if (room.vertices.length < 3) return;
+
+  const pts  = ensureClockwise(room.vertices);
+  const pw   = state.orientation === 0 ? PLATE_W : PLATE_H;
+  const cc   = 150; // pipe track spacing mm
+  const offX = state.offsetX || 0;
+
+  const minX = Math.min(...pts.map(p => p.x));
+  const maxX = Math.max(...pts.map(p => p.x));
+
+  // Build x-positions of all pipe tracks, aligned to plate grid
+  const gxStart = minX - (((minX - offX) % pw) + pw) % pw;
+  const nt = Math.floor(pw / cc);
+  const allTracks = [];
+  for (let gx = gxStart; gx <= maxX + pw; gx += pw) {
+    for (let t = 0; t < nt; t++) {
+      const wx = gx + cc / 2 + t * cc;
+      if (wx >= minX && wx <= maxX) allTracks.push(wx);
+    }
+  }
+
+  // Only keep tracks that actually pass through the room polygon
+  const tracks = allTracks.filter(wx => getPolygonYAtX(pts, wx).length >= 2);
+  if (!tracks.length) return;
 
   ctx.save();
   ctx.strokeStyle = COLORS.pipe;
-  ctx.lineWidth = Math.max(0.5, state.vpScale * 3);
+  ctx.lineWidth   = Math.max(1.5, state.vpScale * 5);
+  ctx.lineJoin    = 'round';
+  ctx.lineCap     = 'round';
   ctx.setLineDash([]);
+  ctx.beginPath();
 
-  if (state.plateType === 'maander') {
-    // Draw mäander lines along the long axis (ph direction)
-    const numTracks = Math.floor(pw / cc);
-    for (let i = 0; i < numTracks; i++) {
-      const wx = p.x + cc * 0.5 + i * cc;
-      const sa = w2s(wx, p.y + 10);
-      const sb = w2s(wx, p.y + ph - 10);
-      ctx.beginPath();
-      ctx.moveTo(sa.x, sa.y);
-      ctx.lineTo(sb.x, sb.y);
-      ctx.stroke();
+  let prevX = null, prevEndY = null, started = false;
+
+  tracks.forEach((wx, idx) => {
+    const ys = getPolygonYAtX(pts, wx);
+    if (ys.length < 2) return;
+    const yTop = ys[0], yBot = ys[ys.length - 1];
+    const down   = (idx % 2 === 0);
+    const yStart = down ? yTop : yBot;
+    const yEnd   = down ? yBot : yTop;
+
+    const ss = w2s(wx, yStart);
+    const se = w2s(wx, yEnd);
+
+    if (!started) {
+      ctx.moveTo(ss.x, ss.y);
+      started = true;
+    } else {
+      // U-turn arc connecting end of previous track to start of this track
+      const rW   = Math.abs(wx - prevX) / 2;
+      const cxW  = (prevX + wx) / 2;
+      const cs   = w2s(cxW, prevEndY);
+      const rPx  = rW * state.vpScale;
+      // prevDown = !down (alternates): if previous was down, U-turn at bottom
+      const prevDown = !down;
+      // anticlockwise=false → clockwise in canvas = curves downward (bottom U-turn)
+      // anticlockwise=true  → counterclockwise  = curves upward   (top U-turn)
+      ctx.arc(cs.x, cs.y, rPx, Math.PI, 0, !prevDown);
+      // Connect arc end to actual track start if y differs (non-rectangular rooms)
+      if (Math.abs(prevEndY - yStart) > 5) ctx.lineTo(ss.x, ss.y);
     }
-  } else {
-    // Schnecke: concentric rectangles
-    const cx = p.x + pw / 2;
-    const cy = p.y + ph / 2;
-    for (let r = cc; r < Math.min(pw, ph) / 2 - 10; r += cc) {
-      const s = w2s(cx - r, cy - r * (ph / pw));
-      const e = w2s(cx + r, cy + r * (ph / pw));
-      ctx.strokeRect(s.x, s.y, e.x - s.x, e.y - s.y);
-    }
+
+    ctx.lineTo(se.x, se.y);
+    prevX    = wx;
+    prevEndY = yEnd;
+  });
+
+  ctx.stroke();
+
+  // Vorlauf (entry) dot
+  const e0ys = getPolygonYAtX(pts, tracks[0]);
+  if (e0ys.length >= 2) {
+    const ep = w2s(tracks[0], e0ys[0]);
+    ctx.beginPath();
+    ctx.arc(ep.x, ep.y, Math.max(5, state.vpScale * 12), 0, Math.PI * 2);
+    ctx.fillStyle = '#10b981';
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.fill(); ctx.stroke();
   }
+  // Rücklauf (exit) dot
+  const lastWx = tracks[tracks.length - 1];
+  const elys = getPolygonYAtX(pts, lastWx);
+  if (elys.length >= 2) {
+    const lastDown = ((tracks.length - 1) % 2 === 0);
+    const exitY = lastDown ? elys[elys.length - 1] : elys[0];
+    const xp = w2s(lastWx, exitY);
+    ctx.beginPath();
+    ctx.arc(xp.x, xp.y, Math.max(5, state.vpScale * 12), 0, Math.PI * 2);
+    ctx.fillStyle = '#ef4444';
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.fill(); ctx.stroke();
+  }
+
   ctx.restore();
 }
 
