@@ -55,6 +55,12 @@ canvas.pan:active{cursor:grabbing;}
 .tool-btn{padding:6px 12px;border:1px solid #e2e8f0;border-radius:12px;background:#fff;cursor:pointer;font-size:.75rem;color:#475569;}
 .tool-btn.active{background:#1d4ed8;color:#fff;border-color:#1d4ed8;}
 .tool-btn:hover:not(.active){background:#f8fafc;}
+@media(max-width:640px){
+  .tool-bar{top:8px;gap:4px;padding:5px 8px;}
+  .tool-btn{padding:5px 10px;font-size:.72rem;}
+  #t-calib{display:none;}
+  #t-layout{display:none;}
+}
 
 .hint{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.6);color:#fff;padding:5px 12px;border-radius:12px;font-size:.75rem;pointer-events:none;white-space:nowrap;}
 
@@ -84,7 +90,7 @@ canvas.pan:active{cursor:grabbing;}
   .mobile-tabs{display:flex;}
   .mobile-panel{position:absolute;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #e2e8f0;padding:16px;z-index:20;max-height:60vh;overflow-y:auto;border-radius:16px 16px 0 0;box-shadow:0 -4px 20px rgba(0,0,0,.15);}
   .mobile-panel.hidden{display:none;}
-  .list-panel{display:none;}
+  .list-panel{display:none !important;}
   .canvas-wrap{border-radius:0;}
 }
 
@@ -223,6 +229,7 @@ canvas.pan:active{cursor:grabbing;}
   <button class="stab active" onclick="showMobilePanel('draw',this)"><span class="mtab-icon">✏️</span>Zeichnen</button>
   <button class="stab" onclick="showMobilePanel('layout',this)"><span class="mtab-icon">📐</span>Layout</button>
   <button class="stab" onclick="showMobilePanel('rooms',this)"><span class="mtab-icon">🏠</span>Räume</button>
+  <button class="stab" onclick="showMobilePanel('floorplan',this)"><span class="mtab-icon">🗺️</span>Grundriss</button>
   <button class="stab" onclick="showMobilePanel('list',this)"><span class="mtab-icon">📋</span>Liste</button>
 </div>
 
@@ -266,6 +273,22 @@ canvas.pan:active{cursor:grabbing;}
   <b style="font-size:.9rem;">Räume</b>
   <div id="m-room-list" style="margin-top:10px;"></div>
   <button class="add-btn" style="margin-top:8px;" onclick="addRoom();closeMobilePanel()">+ Raum hinzufügen</button>
+</div>
+
+<div class="mobile-panel hidden" id="mp-floorplan">
+  <b style="font-size:.9rem;">Grundriss</b>
+  <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px;">
+    <button class="gen-btn" onclick="document.getElementById('bg-upload').click();closeMobilePanel()">📎 Bild / PDF importieren</button>
+    <button class="gen-btn" style="background:#0f766e;" onclick="startCalib();closeMobilePanel()">📏 Maßstab kalibrieren</button>
+    <div id="m-bg-controls" style="display:none;">
+      <label style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+        <span style="font-size:.8rem;color:#475569;white-space:nowrap;">Transparenz</span>
+        <input type="range" min="10" max="100" value="40" style="flex:1;" oninput="state.bgOpacity=this.value/100;render()">
+      </label>
+      <button class="add-btn" style="color:#ef4444;border-color:#fca5a5;margin-top:8px;" onclick="removeBg();closeMobilePanel()">✕ Grundriss entfernen</button>
+    </div>
+  </div>
+  <p style="font-size:.72rem;color:#94a3b8;margin-top:10px;">Importiere einen Grundriss und kalibriere den Maßstab, bevor du den Raum einzeichnest.</p>
 </div>
 
 <div class="mobile-panel hidden" id="mp-list">
@@ -899,14 +922,15 @@ function handlePointerDown(cssX, cssY) {
   }
   // draw mode: add vertex on single click, close on double-click
   const now = Date.now();
-  const isDouble = now - lastTapTime < 350;
+  const isDouble = now - lastTapTime < 500;
   lastTapTime = now;
 
   const wpt = s2w(cssX, cssY);
 
   if (isDouble) {
-    // Close polygon
+    // Close polygon — pop the vertex that the first click of this double-click added
     const room = state.rooms[state.activeRoom];
+    if (room.vertices.length >= 4) room.vertices.pop();
     if (room.vertices.length >= 3) {
       state.pendingVertex = null;
       render();
@@ -1175,7 +1199,7 @@ function showSideTab(name, btn) {
 let activeMobilePanel = null;
 
 function showMobilePanel(name, btn) {
-  const panels = { draw: 'mp-draw', layout: 'mp-layout', rooms: 'mp-rooms', list: 'mp-list' };
+  const panels = { draw: 'mp-draw', layout: 'mp-layout', rooms: 'mp-rooms', floorplan: 'mp-floorplan', list: 'mp-list' };
   const pid = panels[name];
   const panel = document.getElementById(pid);
   if (!panel) return;
@@ -1372,12 +1396,14 @@ function setBgImage(img) {
   state.vpX = -(W / state.vpScale - img.width)  / 2;
   state.vpY = -(H / state.vpScale - img.height) / 2;
   document.getElementById('bg-controls').style.display = 'block';
+  document.getElementById('m-bg-controls').style.display = 'block';
   render();
 }
 
 function removeBg() {
   state.bgImage = null;
   document.getElementById('bg-controls').style.display = 'none';
+  document.getElementById('m-bg-controls').style.display = 'none';
   render();
 }
 
