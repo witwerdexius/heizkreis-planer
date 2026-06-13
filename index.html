@@ -172,6 +172,12 @@ canvas.pan:active{cursor:grabbing;}
         </button>
       </div>
 
+      <div class="section-title">Anschlussseite</div>
+      <div class="orient-btns">
+        <button class="orient-btn pipe-entry-btn active" onclick="setPipeEntry(true,this)">⬆ Oben / Links</button>
+        <button class="orient-btn pipe-entry-btn" onclick="setPipeEntry(false,this)">⬇ Unten / Rechts</button>
+      </div>
+
       <div class="section-title">Startversatz</div>
       <label>Versatz X (mm)</label>
       <input type="number" id="off-x" value="0" min="0" max="1199">
@@ -266,6 +272,11 @@ canvas.pan:active{cursor:grabbing;}
       <button class="orient-btn active" onclick="setOrientation(0,this)">↔ Längs</button>
       <button class="orient-btn" onclick="setOrientation(90,this)">↕ Quer</button>
     </div>
+    <label>Anschlussseite</label>
+    <div class="orient-btns">
+      <button class="orient-btn pipe-entry-btn active" onclick="setPipeEntry(true,this)">⬆ Oben / Links</button>
+      <button class="orient-btn pipe-entry-btn" onclick="setPipeEntry(false,this)">⬇ Unten / Rechts</button>
+    </div>
     <button class="gen-btn" onclick="generateLayout()">▶ Layout berechnen</button>
     <button class="gen-btn" style="background:#0f766e;margin-top:6px;" onclick="optimizeLayout()">✦ Optimieren</button>
   </div>
@@ -332,9 +343,10 @@ canvas.pan:active{cursor:grabbing;}
 // ════════════════════════════════════════════════════
 // CONSTANTS
 // ════════════════════════════════════════════════════
-const PLATE_W = 600;   // mm (short side)
-const PLATE_H = 1200;  // mm (long side)
+const PLATE_W    = 600;   // mm (short side)
+const PLATE_H    = 1200;  // mm (long side)
 const PLATE_AREA = (PLATE_W * PLATE_H) / 1e6; // m²
+const PIPE_MARGIN = 50;   // mm — minimum pipe distance from room wall
 
 const COLORS = {
   room:      '#dbeafe',
@@ -359,6 +371,7 @@ let state = {
   tool: 'draw',          // 'draw' | 'move'
   orientation: 0,        // 0=längs, 90=quer
   plateType: 'maander',
+  pipeEntryAtMin: true,  // true=Anschluss oben/links, false=unten/rechts
   offsetX: 0,
   offsetY: 0,
   layout: null,          // { placements:[], stats:{} }
@@ -913,17 +926,22 @@ function drawPipeRouting() {
   ctx.setLineDash([]);
 
   let prevCross = null, prevPipeEnd = null;
+  const entryMin = state.pipeEntryAtMin; // true = entry/exit at min side of pipe axis
 
   tracks.forEach((wc, idx) => {
     const segs = getSegs(wc);
     if (segs.length < 2) return;
 
-    const down = (idx % 2 === 0); // increasing pipe-coord direction
+    // down = moving toward larger pipe coordinates
+    // when entryMin=true: track 0 moves toward max (down=true for even idx)
+    // when entryMin=false: track 0 moves toward min (down=false for even idx)
+    const down = (idx % 2 === 0) === entryMin;
 
-    // Draw all room-clipped segments for this track (handles non-convex rooms)
+    // Draw all room-clipped segments, inset by PIPE_MARGIN from each wall
     ctx.beginPath();
     for (let p = 0; p + 1 < segs.length; p += 2) {
-      let pA = segs[p], pB = segs[p + 1];
+      let pA = segs[p] + PIPE_MARGIN, pB = segs[p + 1] - PIPE_MARGIN;
+      if (pB <= pA + cc) continue; // segment too narrow after margin
       if (!down) { const tmp = pA; pA = pB; pB = tmp; }
       const s = pipeAlongY ? w2s(wc, pA) : w2s(pA, wc);
       const e = pipeAlongY ? w2s(wc, pB) : w2s(pB, wc);
@@ -932,10 +950,9 @@ function drawPipeRouting() {
     }
     ctx.stroke();
 
-    // Outermost end of this track (the boundary side, used for U-turn)
-    const outerEnd = down ? segs[segs.length - 1] : segs[0];
-    // Start of this track (other boundary side)
-    const trackStart = down ? segs[0] : segs[segs.length - 1];
+    // Inset outer and inner ends (used for U-turn positioning)
+    const outerEnd  = down ? segs[segs.length - 1] - PIPE_MARGIN : segs[0] + PIPE_MARGIN;
+    const trackStart = down ? segs[0] + PIPE_MARGIN : segs[segs.length - 1] - PIPE_MARGIN;
 
     // Draw U-turn arc if previous track ended at approximately the same boundary
     if (prevCross !== null && prevPipeEnd !== null &&
@@ -948,14 +965,14 @@ function drawPipeRouting() {
       ctx.beginPath();
       if (pipeAlongY) {
         // Arc center at (midCross_x, prevPipeEnd_y); sweeps from angle π to 0
-        // prevDown=true (was going down, ended at yMax): clockwise (acw=false) → curves downward (outside)
-        // prevDown=false (was going up, ended at yMin): counterclockwise (acw=true) → curves upward (outside)
+        // prevDown=true → ended at large y (bottom) → clockwise → curves downward (outside)
+        // prevDown=false → ended at small y (top) → counterclockwise → curves upward (outside)
         const cs = w2s(midCross, prevPipeEnd);
         ctx.arc(cs.x, cs.y, rPx, Math.PI, 0, !prevDown);
       } else {
         // Arc center at (prevPipeEnd_x, midCross_y); sweeps from -π/2 to π/2
-        // prevDown=true (was going right, ended at xMax): clockwise (acw=false) → curves rightward (outside)
-        // prevDown=false (was going left, ended at xMin): counterclockwise (acw=true) → curves leftward (outside)
+        // prevDown=true → ended at large x (right) → clockwise → curves rightward (outside)
+        // prevDown=false → ended at small x (left) → counterclockwise → curves leftward (outside)
         const cs = w2s(prevPipeEnd, midCross);
         ctx.arc(cs.x, cs.y, rPx, -Math.PI / 2, Math.PI / 2, !prevDown);
       }
@@ -966,22 +983,22 @@ function drawPipeRouting() {
     prevPipeEnd = outerEnd;
   });
 
-  // Vorlauf (entry) dot — green
+  // Entry (Vorlauf) dot — green, always on entryMin side
   const e0segs = getSegs(tracks[0]);
   if (e0segs.length >= 2) {
-    const ep = pipeAlongY ? w2s(tracks[0], e0segs[0]) : w2s(e0segs[0], tracks[0]);
+    const ep0 = entryMin ? e0segs[0] + PIPE_MARGIN : e0segs[e0segs.length - 1] - PIPE_MARGIN;
+    const ep = pipeAlongY ? w2s(tracks[0], ep0) : w2s(ep0, tracks[0]);
     ctx.beginPath();
     ctx.arc(ep.x, ep.y, Math.max(5, state.vpScale * 12), 0, Math.PI * 2);
     ctx.fillStyle = '#10b981'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
     ctx.fill(); ctx.stroke();
   }
-  // Rücklauf (exit) dot — red
+  // Exit (Rücklauf) dot — red, also on entryMin side (in/out nebeneinander)
   const lastTrack = tracks[tracks.length - 1];
   const elsegs    = getSegs(lastTrack);
   if (elsegs.length >= 2) {
-    const lastDown = ((tracks.length - 1) % 2 === 0);
-    const exitPipe = lastDown ? elsegs[elsegs.length - 1] : elsegs[0];
-    const xp = pipeAlongY ? w2s(lastTrack, exitPipe) : w2s(exitPipe, lastTrack);
+    const ep1 = entryMin ? elsegs[0] + PIPE_MARGIN : elsegs[elsegs.length - 1] - PIPE_MARGIN;
+    const xp = pipeAlongY ? w2s(lastTrack, ep1) : w2s(ep1, lastTrack);
     ctx.beginPath();
     ctx.arc(xp.x, xp.y, Math.max(5, state.vpScale * 12), 0, Math.PI * 2);
     ctx.fillStyle = '#ef4444'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
@@ -1342,6 +1359,13 @@ function setOrientation(deg, btn) {
   state.orientation = deg;
   state.layout = null;
   document.querySelectorAll('.orient-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  render();
+}
+
+function setPipeEntry(atMin, btn) {
+  state.pipeEntryAtMin = atMin;
+  document.querySelectorAll('.pipe-entry-btn').forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
   render();
 }
