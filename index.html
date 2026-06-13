@@ -398,7 +398,7 @@ canvas.pan:active{cursor:grabbing;}
 // ════════════════════════════════════════════════════
 // VERSION  (increment on every release commit)
 // ════════════════════════════════════════════════════
-const VERSION = '2.1';
+const VERSION = '2.2';
 
 // ════════════════════════════════════════════════════
 // CONSTANTS
@@ -1022,54 +1022,30 @@ function drawSchneckePipes() {
   const endS   = w2s(endW.x,   endW.y);
   const dotR   = Math.max(5, state.vpScale * 12);
 
+  // Supply stub: spiral start → entry wall (perpendicular, stays inside room)
+  const entryWallX = entryAtXMin ? xMin : xMax;
+  const wallStrtS  = w2s(entryWallX, startW.y);
+  const lw = Math.max(1.5, state.vpScale * 5);
+  ctx.lineWidth = lw;
+  ctx.strokeStyle = '#10b981';
+  ctx.beginPath(); ctx.moveTo(startS.x, startS.y); ctx.lineTo(wallStrtS.x, wallStrtS.y); ctx.stroke();
+
+  // Dots at start and end
+  ctx.fillStyle = '#10b981'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(startS.x, startS.y, dotR * 0.75, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#ef4444';
+  ctx.beginPath(); ctx.arc(endS.x, endS.y, dotR * 0.75, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+  // Manifold marker at placed entry point
   if (state.pipeEntry) {
-    const mpt  = w2s(state.pipeEntry.x, state.pipeEntry.y);
-    const lw   = Math.max(1.5, state.vpScale * 5);
-    ctx.lineWidth = lw;
-
-    // Corridor along entry wall at PIPE_MARGIN from the wall
-    const corrX = entryAtXMin ? xMin + PIPE_MARGIN : xMax - PIPE_MARGIN;
-    const cMani = w2s(corrX, state.pipeEntry.y);
-    const cStrt = w2s(corrX, startW.y);
-    const cEnd  = w2s(corrX, endW.y);
-
-    // Supply (green): manifold → corridor → spiral start
-    ctx.strokeStyle = '#10b981';
-    ctx.beginPath();
-    ctx.moveTo(mpt.x,   mpt.y);
-    ctx.lineTo(cMani.x, cMani.y);
-    ctx.lineTo(cStrt.x, cStrt.y);
-    ctx.lineTo(startS.x, startS.y);
-    ctx.stroke();
-
-    // Return (red): spiral end → corridor → manifold
-    ctx.strokeStyle = '#ef4444';
-    ctx.beginPath();
-    ctx.moveTo(endS.x,  endS.y);
-    ctx.lineTo(cEnd.x,  cEnd.y);
-    ctx.lineTo(cMani.x, cMani.y);
-    ctx.lineTo(mpt.x,   mpt.y);
-    ctx.stroke();
-
-    // Manifold marker
-    const mR = Math.max(7, state.vpScale * 14);
+    const mpt = w2s(state.pipeEntry.x, state.pipeEntry.y);
+    const mR  = Math.max(7, state.vpScale * 14);
     ctx.lineWidth = 2;
     ctx.fillStyle = '#10b981';
     ctx.beginPath(); ctx.arc(mpt.x, mpt.y, mR, Math.PI, 0); ctx.closePath(); ctx.fill();
     ctx.fillStyle = '#ef4444';
     ctx.beginPath(); ctx.arc(mpt.x, mpt.y, mR, 0, Math.PI); ctx.closePath(); ctx.fill();
     ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.arc(mpt.x, mpt.y, mR, 0, Math.PI * 2); ctx.stroke();
-
-    ctx.fillStyle = '#10b981'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.arc(startS.x, startS.y, dotR * 0.65, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#ef4444';
-    ctx.beginPath(); ctx.arc(endS.x,   endS.y,   dotR * 0.65, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  } else {
-    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
-    ctx.fillStyle = '#10b981';
-    ctx.beginPath(); ctx.arc(startS.x, startS.y, dotR, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#ef4444';
-    ctx.beginPath(); ctx.arc(endS.x,   endS.y,   dotR, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
   }
 
   ctx.restore();
@@ -1222,85 +1198,56 @@ function drawPipeRouting() {
     prevPipeEnd = outerEnd;
   });
 
-  // Entry/exit dots and connection stubs
+  // Vorlauf / Rücklauf — perpendicular stubs to the wall, integrated into the plate pattern.
+  // No cross-room routing: each stub goes from the track outlet straight to the nearest wall.
+  // The manifold marker shows where the connections meet outside the slab.
   const e0segs    = getSegs(tracks[0]);
   const lastTrack = tracks[tracks.length - 1];
   const elsegs    = getSegs(lastTrack);
   const dotR      = Math.max(5, state.vpScale * 12);
 
   if (e0segs.length >= 2 && elsegs.length >= 2) {
-    // Track entry endpoints at ENTRY_INSET from the entry wall
-    const pipeBoundary0 = entryMin ? e0segs[0] + ENTRY_INSET : e0segs[e0segs.length - 1] - ENTRY_INSET;
-    const pipeBoundary1 = entryMin ? elsegs[0] + ENTRY_INSET : elsegs[elsegs.length - 1] - ENTRY_INSET;
-    const trackPt0 = pipeAlongY ? w2s(tracks[0], pipeBoundary0) : w2s(pipeBoundary0, tracks[0]);
-    const trackPt1 = pipeAlongY ? w2s(lastTrack, pipeBoundary1) : w2s(pipeBoundary1, lastTrack);
+    const lw = Math.max(1.5, state.vpScale * 5);
+    ctx.lineWidth = lw; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.setLineDash([]);
 
+    // ── Vorlauf (supply, green): always exits at the entry-wall side of track 0 ──
+    const pb0       = entryMin ? e0segs[0] + minInset : e0segs[e0segs.length - 1] - maxInset;
+    const wall0     = entryMin ? e0segs[0]             : e0segs[e0segs.length - 1];
+    const trackPt0  = pipeAlongY ? w2s(tracks[0], pb0)   : w2s(pb0,   tracks[0]);
+    const wallPt0   = pipeAlongY ? w2s(tracks[0], wall0) : w2s(wall0, tracks[0]);
+
+    // ── Rücklauf (return, red): exits at whichever end the last track actually reaches ──
+    const lastIdx      = tracks.length - 1;
+    const lastDown     = (lastIdx % 2 === 0) === entryMin;
+    const pbLast       = lastDown
+      ? elsegs[elsegs.length - 1] - maxInset   // outlet at turn-side wall
+      : elsegs[0]              + minInset;      // outlet at entry-side wall
+    const wallLast     = lastDown ? elsegs[elsegs.length - 1] : elsegs[0];
+    const trackPtLast  = pipeAlongY ? w2s(lastTrack, pbLast)    : w2s(pbLast,    lastTrack);
+    const wallPtLast   = pipeAlongY ? w2s(lastTrack, wallLast)  : w2s(wallLast,  lastTrack);
+
+    // Draw stubs
+    ctx.strokeStyle = '#10b981';
+    ctx.beginPath(); ctx.moveTo(trackPt0.x, trackPt0.y); ctx.lineTo(wallPt0.x, wallPt0.y); ctx.stroke();
+    ctx.strokeStyle = '#ef4444';
+    ctx.beginPath(); ctx.moveTo(trackPtLast.x, trackPtLast.y); ctx.lineTo(wallPtLast.x, wallPtLast.y); ctx.stroke();
+
+    // Dots at outlets
+    ctx.fillStyle = '#10b981'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(trackPt0.x,    trackPt0.y,    dotR * 0.75, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#ef4444';
+    ctx.beginPath(); ctx.arc(trackPtLast.x, trackPtLast.y, dotR * 0.75, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+    // Manifold marker at placed entry point (independent of routing)
     if (state.pipeEntry) {
       const mpt = w2s(state.pipeEntry.x, state.pipeEntry.y);
-      const lw  = Math.max(1.5, state.vpScale * 5);
-      ctx.lineWidth = lw; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.setLineDash([]);
-
-      // Direct 2-segment elbow routing — avoids a shared horizontal corridor that would
-      // cross outside the room in L-shaped layouts.
-      // Supply:  manifold → elbow (at manifold.x / pipeBoundary0 level) → track 0 entry
-      // Return:  last track entry → elbow (at manifold.x / pipeBoundary1 level) → manifold
-      if (pipeAlongY) {
-        // Portrait: elbow is at (manifold.x, pipeBoundary Y)
-        const elbowS = w2s(state.pipeEntry.x, pipeBoundary0);
-        ctx.strokeStyle = '#10b981';
-        ctx.beginPath();
-        ctx.moveTo(mpt.x, mpt.y);
-        ctx.lineTo(elbowS.x, elbowS.y);
-        ctx.lineTo(trackPt0.x, trackPt0.y);
-        ctx.stroke();
-
-        const elbowR = w2s(state.pipeEntry.x, pipeBoundary1);
-        ctx.strokeStyle = '#ef4444';
-        ctx.beginPath();
-        ctx.moveTo(trackPt1.x, trackPt1.y);
-        ctx.lineTo(elbowR.x, elbowR.y);
-        ctx.lineTo(mpt.x, mpt.y);
-        ctx.stroke();
-      } else {
-        // Landscape: elbow is at (pipeBoundary X, manifold.y)
-        const elbowS = w2s(pipeBoundary0, state.pipeEntry.y);
-        ctx.strokeStyle = '#10b981';
-        ctx.beginPath();
-        ctx.moveTo(mpt.x, mpt.y);
-        ctx.lineTo(elbowS.x, elbowS.y);
-        ctx.lineTo(trackPt0.x, trackPt0.y);
-        ctx.stroke();
-
-        const elbowR = w2s(pipeBoundary1, state.pipeEntry.y);
-        ctx.strokeStyle = '#ef4444';
-        ctx.beginPath();
-        ctx.moveTo(trackPt1.x, trackPt1.y);
-        ctx.lineTo(elbowR.x, elbowR.y);
-        ctx.lineTo(mpt.x, mpt.y);
-        ctx.stroke();
-      }
-
-      // Manifold marker: half-green / half-red circle
-      const mR = Math.max(7, state.vpScale * 14);
+      const mR  = Math.max(7, state.vpScale * 14);
       ctx.lineWidth = 2;
       ctx.fillStyle = '#10b981';
       ctx.beginPath(); ctx.arc(mpt.x, mpt.y, mR, Math.PI, 0); ctx.closePath(); ctx.fill();
       ctx.fillStyle = '#ef4444';
       ctx.beginPath(); ctx.arc(mpt.x, mpt.y, mR, 0, Math.PI); ctx.closePath(); ctx.fill();
       ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.arc(mpt.x, mpt.y, mR, 0, Math.PI * 2); ctx.stroke();
-
-      // Small dots at track endpoints
-      ctx.fillStyle = '#10b981'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(trackPt0.x, trackPt0.y, dotR * 0.65, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#ef4444';
-      ctx.beginPath(); ctx.arc(trackPt1.x, trackPt1.y, dotR * 0.65, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    } else {
-      // No point placed — just draw entry/exit dots at track ends
-      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
-      ctx.fillStyle = '#10b981';
-      ctx.beginPath(); ctx.arc(trackPt0.x, trackPt0.y, dotR, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#ef4444';
-      ctx.beginPath(); ctx.arc(trackPt1.x, trackPt1.y, dotR, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     }
   }
 
