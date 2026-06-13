@@ -1035,13 +1035,30 @@ function drawPipeRouting() {
       const mpt = w2s(state.pipeEntry.x, state.pipeEntry.y);
       const lw  = Math.max(1.5, state.vpScale * 5);
 
-      ctx.lineWidth = lw; ctx.lineCap = 'round'; ctx.setLineDash([]);
+      ctx.lineWidth = lw; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.setLineDash([]);
 
-      ctx.strokeStyle = '#10b981';
-      ctx.beginPath(); ctx.moveTo(mpt.x, mpt.y); ctx.lineTo(trackPt0.x, trackPt0.y); ctx.stroke();
+      // Route each stub orthogonally along the wall (no diagonals):
+      //   Portrait: mpt → (mpt.x_world, boundary_y) → trackPt  (vertical then horizontal)
+      //   Landscape: mpt → (boundary_x, mpt.y_world) → trackPt  (horizontal then vertical)
+      const drawStub = (color, pt, boundary) => {
+        let corner;
+        if (pipeAlongY) {
+          // portrait: intermediate point at manifold-x, boundary-y
+          corner = w2s(state.pipeEntry.x, boundary);
+        } else {
+          // landscape: intermediate point at boundary-x, manifold-y
+          corner = w2s(boundary, state.pipeEntry.y);
+        }
+        ctx.strokeStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(mpt.x, mpt.y);
+        ctx.lineTo(corner.x, corner.y);
+        ctx.lineTo(pt.x, pt.y);
+        ctx.stroke();
+      };
 
-      ctx.strokeStyle = '#ef4444';
-      ctx.beginPath(); ctx.moveTo(mpt.x, mpt.y); ctx.lineTo(trackPt1.x, trackPt1.y); ctx.stroke();
+      drawStub('#10b981', trackPt0, pipeBoundary0);
+      drawStub('#ef4444', trackPt1, pipeBoundary1);
 
       // Manifold marker: half-green / half-red circle
       const mR = Math.max(7, state.vpScale * 14);
