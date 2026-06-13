@@ -2206,7 +2206,7 @@ function loadProject() {
         document.getElementById('bg-controls').style.display   = 'block';
         document.getElementById('m-bg-controls').style.display = 'flex';
         renderRoomList();
-        render();
+        resetView();
       };
       img.src = data.bgDataUrl;
     } else {
@@ -2214,7 +2214,7 @@ function loadProject() {
       document.getElementById('bg-controls').style.display   = 'none';
       document.getElementById('m-bg-controls').style.display = 'none';
       renderRoomList();
-      render();
+      resetView();
     }
 
     // Sync orientation buttons
