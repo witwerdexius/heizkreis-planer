@@ -1,0 +1,1458 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Heizkreis-Planer</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#f1f5f9;color:#1e293b;height:100dvh;display:flex;flex-direction:column;overflow:hidden;}
+
+/* ── Header ── */
+header{background:#1d4ed8;color:#fff;padding:10px 16px;display:flex;align-items:center;gap:12px;flex-shrink:0;z-index:10;}
+header h1{font-size:1rem;font-weight:700;flex:1;}
+.hdr-btn{background:rgba(255,255,255,.15);border:none;color:#fff;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:.8rem;white-space:nowrap;}
+.hdr-btn:hover{background:rgba(255,255,255,.25);}
+
+/* ── Main layout ── */
+.app-body{display:flex;flex:1;min-height:0;}
+
+/* ── Sidebar ── */
+aside{width:260px;background:#fff;border-right:1px solid #e2e8f0;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;}
+.sidebar-tabs{display:flex;border-bottom:1px solid #e2e8f0;}
+.stab{flex:1;padding:8px 4px;font-size:.75rem;text-align:center;cursor:pointer;background:none;border:none;color:#64748b;border-bottom:2px solid transparent;}
+.stab.active{color:#1d4ed8;border-bottom-color:#1d4ed8;font-weight:600;}
+.sidebar-panel{flex:1;overflow-y:auto;padding:12px;}
+.sidebar-panel.hidden{display:none;}
+
+.section-title{font-size:.7rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin:12px 0 6px;}
+.room-item{display:flex;align-items:center;gap:8px;padding:8px;border-radius:6px;cursor:pointer;margin-bottom:4px;}
+.room-item:hover{background:#f8fafc;}
+.room-item.active{background:#eff6ff;color:#1d4ed8;}
+.room-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+.room-name{flex:1;font-size:.85rem;}
+.room-del{background:none;border:none;color:#94a3b8;cursor:pointer;padding:2px 4px;font-size:1rem;line-height:1;}
+.room-del:hover{color:#ef4444;}
+.add-btn{width:100%;padding:8px;background:#eff6ff;color:#1d4ed8;border:1px dashed #93c5fd;border-radius:6px;cursor:pointer;font-size:.8rem;margin-top:4px;}
+.add-btn:hover{background:#dbeafe;}
+
+label{font-size:.8rem;color:#475569;display:block;margin-bottom:2px;}
+input[type=number],select{width:100%;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:.85rem;background:#fff;margin-bottom:8px;}
+input[type=number]:focus,select:focus{outline:2px solid #3b82f6;outline-offset:1px;}
+.orient-btns{display:flex;gap:6px;margin-bottom:8px;}
+.orient-btn{flex:1;padding:8px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;cursor:pointer;font-size:.8rem;text-align:center;}
+.orient-btn.active{background:#1d4ed8;color:#fff;border-color:#1d4ed8;}
+.gen-btn{width:100%;padding:10px;background:#1d4ed8;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:600;font-size:.85rem;margin-top:4px;}
+.gen-btn:hover{background:#1e40af;}
+
+/* ── Canvas area ── */
+.canvas-wrap{flex:1;position:relative;min-width:0;background:#e8edf2;overflow:hidden;touch-action:none;}
+canvas{display:block;width:100%;height:100%;cursor:crosshair;}
+canvas.pan{cursor:grab;}
+canvas.pan:active{cursor:grabbing;}
+
+.tool-bar{position:absolute;top:10px;left:50%;transform:translateX(-50%);display:flex;gap:6px;background:rgba(255,255,255,.95);padding:6px 10px;border-radius:20px;box-shadow:0 2px 8px rgba(0,0,0,.15);}
+.tool-btn{padding:6px 12px;border:1px solid #e2e8f0;border-radius:12px;background:#fff;cursor:pointer;font-size:.75rem;color:#475569;}
+.tool-btn.active{background:#1d4ed8;color:#fff;border-color:#1d4ed8;}
+.tool-btn:hover:not(.active){background:#f8fafc;}
+
+.hint{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.6);color:#fff;padding:5px 12px;border-radius:12px;font-size:.75rem;pointer-events:none;white-space:nowrap;}
+
+.zoom-btns{position:absolute;bottom:12px;right:12px;display:flex;flex-direction:column;gap:4px;}
+.zoom-btn{width:36px;height:36px;background:#fff;border:1px solid #e2e8f0;border-radius:8px;cursor:pointer;font-size:1.1rem;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.1);}
+.zoom-btn:hover{background:#f8fafc;}
+
+/* ── Stückliste panel ── */
+.list-panel{background:#fff;border-top:1px solid #e2e8f0;padding:10px 16px;max-height:160px;overflow-y:auto;flex-shrink:0;}
+.list-panel h3{font-size:.8rem;font-weight:700;color:#64748b;margin-bottom:8px;}
+.list-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;}
+.list-card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 12px;}
+.list-card .lc-title{font-size:.7rem;color:#94a3b8;margin-bottom:2px;}
+.list-card .lc-val{font-size:1.1rem;font-weight:700;color:#1e293b;}
+.list-card .lc-sub{font-size:.7rem;color:#64748b;}
+.full-chip{background:#dbeafe;color:#1d4ed8;}
+.cut-chip{background:#fef3c7;color:#92400e;}
+.waste-chip{background:#fee2e2;color:#991b1b;}
+
+/* ── Mobile bottom tab bar ── */
+.mobile-tabs{display:none;background:#fff;border-top:1px solid #e2e8f0;padding:4px 0 env(safe-area-inset-bottom);flex-shrink:0;}
+.mobile-tabs .stab{flex:1;padding:8px 4px 4px;font-size:.65rem;display:flex;flex-direction:column;align-items:center;gap:2px;}
+.mtab-icon{font-size:1.2rem;line-height:1;}
+
+@media(max-width:640px){
+  aside{display:none;}
+  .mobile-tabs{display:flex;}
+  .mobile-panel{position:absolute;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #e2e8f0;padding:16px;z-index:20;max-height:60vh;overflow-y:auto;border-radius:16px 16px 0 0;box-shadow:0 -4px 20px rgba(0,0,0,.15);}
+  .mobile-panel.hidden{display:none;}
+  .list-panel{display:none;}
+  .canvas-wrap{border-radius:0;}
+}
+
+/* ── Modal ── */
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:50;align-items:center;justify-content:center;}
+.modal-bg.open{display:flex;}
+.modal{background:#fff;border-radius:12px;padding:20px;max-width:360px;width:90%;}
+.modal h3{font-size:1rem;font-weight:700;margin-bottom:12px;}
+.modal-foot{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;}
+.btn{padding:8px 16px;border-radius:8px;border:none;cursor:pointer;font-size:.85rem;}
+.btn-pri{background:#1d4ed8;color:#fff;}
+.btn-sec{background:#f1f5f9;color:#475569;}
+.btn:hover{opacity:.85;}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head>
+<body>
+
+<header>
+  <h1>🔥 Heizkreis-Planer</h1>
+  <span id="hdr-room" style="font-size:.8rem;opacity:.8"></span>
+  <button class="hdr-btn" onclick="resetView()">↔ Ansicht</button>
+</header>
+
+<div class="app-body">
+  <!-- Sidebar -->
+  <aside id="sidebar">
+    <div class="sidebar-tabs">
+      <button class="stab active" onclick="showSideTab('rooms',this)">Räume</button>
+      <button class="stab" onclick="showSideTab('layout',this)">Layout</button>
+      <button class="stab" onclick="showSideTab('plates',this)">Platten</button>
+    </div>
+
+    <!-- Räume -->
+    <div id="sp-rooms" class="sidebar-panel">
+      <div class="section-title">Räume</div>
+      <div id="room-list"></div>
+      <button class="add-btn" onclick="addRoom()">+ Raum hinzufügen</button>
+
+      <div class="section-title" style="margin-top:16px;">Grundriss</div>
+      <input type="file" id="bg-upload" accept="image/*,.pdf" style="display:none" onchange="handleBgUpload(this)">
+      <button class="add-btn" onclick="document.getElementById('bg-upload').click()">📎 Grundriss importieren</button>
+      <div id="bg-controls" style="display:none;margin-top:8px;">
+        <button class="tool-btn" id="tb-calib" onclick="startCalib()" style="text-align:left;padding:8px 12px;width:100%;border-radius:8px;margin-bottom:6px;">📏 Maßstab kalibrieren</button>
+        <label style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+          <span style="font-size:.75rem;color:#475569;white-space:nowrap;">Transparenz</span>
+          <input type="range" id="bg-opacity" min="10" max="100" value="40" style="flex:1;margin:0;" oninput="state.bgOpacity=this.value/100;render()">
+        </label>
+        <button class="add-btn" style="color:#ef4444;border-color:#fca5a5;" onclick="removeBg()">✕ Grundriss entfernen</button>
+      </div>
+
+      <div class="section-title" style="margin-top:16px;">Werkzeuge</div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <button class="tool-btn" id="tb-draw" onclick="setTool('draw')" style="text-align:left;padding:8px 12px;width:100%;border-radius:8px;">✏️ Zeichnen (Klicken)</button>
+        <button class="tool-btn" id="tb-move" onclick="setTool('move')" style="text-align:left;padding:8px 12px;width:100%;border-radius:8px;">✋ Verschieben</button>
+        <button class="tool-btn" id="tb-erase" onclick="clearRoom()" style="text-align:left;padding:8px 12px;width:100%;border-radius:8px;color:#ef4444;">🗑 Raum löschen</button>
+      </div>
+      <p style="font-size:.72rem;color:#94a3b8;margin-top:10px;">Klicken um Eckpunkte zu setzen. Doppelklick zum Schließen.</p>
+    </div>
+
+    <!-- Layout -->
+    <div id="sp-layout" class="sidebar-panel hidden">
+      <div class="section-title">Platte</div>
+      <label>Typ</label>
+      <select id="sel-plate">
+        <option value="maander">Nordic Fos 161941 – Mäander</option>
+        <option value="schnecke">Nordic Fos 161941 – Schnecke</option>
+      </select>
+
+      <div class="section-title">Orientierung</div>
+      <div class="orient-btns">
+        <button class="orient-btn active" id="ori-0" onclick="setOrientation(0,this)">
+          ↔ Längs<br><span style="font-size:.65rem;opacity:.7">600×1200</span>
+        </button>
+        <button class="orient-btn" id="ori-90" onclick="setOrientation(90,this)">
+          ↕ Quer<br><span style="font-size:.65rem;opacity:.7">1200×600</span>
+        </button>
+      </div>
+
+      <div class="section-title">Startversatz</div>
+      <label>Versatz X (mm)</label>
+      <input type="number" id="off-x" value="0" min="0" max="1199">
+      <label>Versatz Y (mm)</label>
+      <input type="number" id="off-y" value="0" min="0" max="599">
+
+      <button class="gen-btn" onclick="generateLayout()">▶ Layout berechnen</button>
+      <button class="gen-btn" style="background:#0f766e;margin-top:6px;" onclick="optimizeLayout()">✦ Versatz optimieren</button>
+    </div>
+
+    <!-- Platten-Info -->
+    <div id="sp-plates" class="sidebar-panel hidden">
+      <div class="section-title">Nordic Fos 161941</div>
+      <div style="background:#f8fafc;border-radius:8px;padding:12px;font-size:.8rem;line-height:1.8;">
+        <b>Abmessungen:</b> 600 × 1200 mm<br>
+        <b>Stärke:</b> 19 mm<br>
+        <b>Rohrdurchmesser:</b> Ø 16 mm<br>
+        <b>Rohr-CC:</b> 150 mm<br>
+        <b>Fläche/Platte:</b> 0,72 m²<br>
+        <b>Mäander:</b> 4 Hin- + 1 Rücklauf<br>
+        <b>Schnecke:</b> Spiralförmig
+      </div>
+      <div class="section-title" style="margin-top:12px;">Kanal-Muster</div>
+      <canvas id="pattern-canvas" width="220" height="130" style="background:#fff;border-radius:8px;border:1px solid #e2e8f0;width:100%;"></canvas>
+    </div>
+  </aside>
+
+  <!-- Canvas -->
+  <div class="canvas-wrap" id="canvas-wrap">
+    <canvas id="main-canvas"></canvas>
+
+    <div class="tool-bar" id="toolbar">
+      <button class="tool-btn active" id="t-draw" onclick="setTool('draw')">✏️ Zeichnen</button>
+      <button class="tool-btn" id="t-move" onclick="setTool('move')">✋ Pan</button>
+      <button class="tool-btn" id="t-layout" onclick="generateLayout()">📐 Layout</button>
+      <button class="tool-btn" id="t-calib" onclick="startCalib()">📏 Kalib.</button>
+    </div>
+
+    <div class="zoom-btns">
+      <button class="zoom-btn" onclick="zoom(1.25)">+</button>
+      <button class="zoom-btn" onclick="resetView()">⌂</button>
+      <button class="zoom-btn" onclick="zoom(0.8)">−</button>
+    </div>
+
+    <div class="hint" id="hint">Klicken um Eckpunkte zu setzen · Doppelklick zum Schließen</div>
+  </div>
+</div>
+
+<!-- Stückliste -->
+<div class="list-panel" id="list-panel" style="display:none;">
+  <h3>Stückliste</h3>
+  <div class="list-grid" id="list-grid"></div>
+</div>
+
+<!-- Mobile bottom tabs -->
+<div class="mobile-tabs" id="mobile-tabs">
+  <button class="stab active" onclick="showMobilePanel('draw',this)"><span class="mtab-icon">✏️</span>Zeichnen</button>
+  <button class="stab" onclick="showMobilePanel('layout',this)"><span class="mtab-icon">📐</span>Layout</button>
+  <button class="stab" onclick="showMobilePanel('rooms',this)"><span class="mtab-icon">🏠</span>Räume</button>
+  <button class="stab" onclick="showMobilePanel('list',this)"><span class="mtab-icon">📋</span>Liste</button>
+</div>
+
+<!-- Mobile panels -->
+<div class="mobile-panel hidden" id="mp-draw">
+  <b style="font-size:.9rem;">Werkzeuge</b>
+  <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+    <button class="orient-btn active" style="flex:0 0 auto;" onclick="setTool('draw');closeMobilePanel()">✏️ Zeichnen</button>
+    <button class="orient-btn" style="flex:0 0 auto;" onclick="setTool('move');closeMobilePanel()">✋ Pan</button>
+    <button class="orient-btn" style="flex:0 0 auto;color:#ef4444;" onclick="clearRoom();closeMobilePanel()">🗑 Löschen</button>
+  </div>
+  <p style="font-size:.72rem;color:#94a3b8;margin-top:8px;">Tippen um Eckpunkte zu setzen. Doppeltippen zum Schließen.</p>
+  <div style="margin-top:12px;border-top:1px solid #e2e8f0;padding-top:10px;">
+    <b style="font-size:.85rem;">Grundriss</b>
+    <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
+      <button class="orient-btn" style="flex:0 0 auto;" onclick="document.getElementById('bg-upload').click();closeMobilePanel()">📎 Importieren</button>
+      <button class="orient-btn" style="flex:0 0 auto;" onclick="startCalib();closeMobilePanel()">📏 Kalibrieren</button>
+    </div>
+  </div>
+</div>
+
+<div class="mobile-panel hidden" id="mp-layout">
+  <b style="font-size:.9rem;">Layout</b>
+  <div style="margin-top:10px;">
+    <label>Muster</label>
+    <select id="m-sel-plate" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:6px;font-size:.85rem;margin-bottom:8px;">
+      <option value="maander">Mäander</option>
+      <option value="schnecke">Schnecke</option>
+    </select>
+    <label>Orientierung</label>
+    <div class="orient-btns">
+      <button class="orient-btn active" onclick="setOrientation(0,this)">↔ Längs</button>
+      <button class="orient-btn" onclick="setOrientation(90,this)">↕ Quer</button>
+    </div>
+    <button class="gen-btn" onclick="generateLayout();closeMobilePanel()">▶ Layout berechnen</button>
+    <button class="gen-btn" style="background:#0f766e;margin-top:6px;" onclick="optimizeLayout();closeMobilePanel()">✦ Optimieren</button>
+  </div>
+</div>
+
+<div class="mobile-panel hidden" id="mp-rooms">
+  <b style="font-size:.9rem;">Räume</b>
+  <div id="m-room-list" style="margin-top:10px;"></div>
+  <button class="add-btn" style="margin-top:8px;" onclick="addRoom();closeMobilePanel()">+ Raum hinzufügen</button>
+</div>
+
+<div class="mobile-panel hidden" id="mp-list">
+  <b style="font-size:.9rem;">Stückliste</b>
+  <div id="m-list-grid" class="list-grid" style="margin-top:10px;"></div>
+</div>
+
+<!-- Calibration modal -->
+<div class="modal-bg" id="modal-calib">
+  <div class="modal">
+    <h3>Maßstab kalibrieren</h3>
+    <p style="font-size:.82rem;color:#64748b;margin-bottom:12px;">Wie lang ist die eingezeichnete Strecke in Wirklichkeit?</p>
+    <label>Länge (mm)</label>
+    <input type="number" id="calib-len-input" min="10" max="100000" placeholder="z.B. 3520" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:6px;font-size:1rem;margin-top:4px;">
+    <div class="modal-foot">
+      <button class="btn btn-sec" onclick="cancelCalib()">Abbrechen</button>
+      <button class="btn btn-pri" onclick="confirmCalib()">Kalibrieren</button>
+    </div>
+  </div>
+</div>
+
+<!-- Wall length modal -->
+<div class="modal-bg" id="modal-wall">
+  <div class="modal">
+    <h3>Wandlänge eingeben</h3>
+    <label>Länge (mm)</label>
+    <input type="number" id="wall-len-input" min="50" max="20000" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:6px;font-size:1rem;margin-top:4px;">
+    <div class="modal-foot">
+      <button class="btn btn-sec" onclick="closeModal('modal-wall')">Abbrechen</button>
+      <button class="btn btn-pri" onclick="confirmWallLength()">OK</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════
+// CONSTANTS
+// ════════════════════════════════════════════════════
+const PLATE_W = 600;   // mm (short side)
+const PLATE_H = 1200;  // mm (long side)
+const PLATE_AREA = (PLATE_W * PLATE_H) / 1e6; // m²
+
+const COLORS = {
+  room:      '#dbeafe',
+  roomEdge:  '#1d4ed8',
+  roomFill:  '#eff6ff',
+  full:      'rgba(59,130,246,.25)',
+  fullEdge:  'rgba(37,99,235,.8)',
+  cut:       'rgba(251,191,36,.3)',
+  cutEdge:   'rgba(217,119,6,.8)',
+  pipe:      'rgba(16,185,129,.6)',
+  grid:      'rgba(148,163,184,.2)',
+  vertex:    '#1d4ed8',
+  measure:   '#64748b',
+};
+
+// ════════════════════════════════════════════════════
+// STATE
+// ════════════════════════════════════════════════════
+let state = {
+  rooms: [{ id:1, name:'Raum 1', vertices:[], color:'#3b82f6' }],
+  activeRoom: 0,         // index into rooms[]
+  tool: 'draw',          // 'draw' | 'move'
+  orientation: 0,        // 0=längs, 90=quer
+  plateType: 'maander',
+  offsetX: 0,
+  offsetY: 0,
+  layout: null,          // { placements:[], stats:{} }
+  // viewport
+  vpX: 0, vpY: 0,        // world coords at canvas top-left
+  vpScale: 0.3,          // px per mm
+  dragging: false,
+  dragStart: null,
+  // drawing state
+  pendingVertex: null,   // {x,y} being dragged before drop
+  wallModal: { resolve: null },
+  // background floor plan
+  bgImage: null,
+  bgMmPerPx: 1,
+  bgOffsetX: 0,
+  bgOffsetY: 0,
+  bgOpacity: 0.4,
+  // calibration
+  calibStart: null,
+  calibEnd: null,
+};
+
+// ════════════════════════════════════════════════════
+// CANVAS SETUP
+// ════════════════════════════════════════════════════
+const canvas = document.getElementById('main-canvas');
+const ctx = canvas.getContext('2d');
+let animFrame = null;
+
+function resize() {
+  const wrap = document.getElementById('canvas-wrap');
+  canvas.width  = wrap.offsetWidth  * devicePixelRatio;
+  canvas.height = wrap.offsetHeight * devicePixelRatio;
+  canvas.style.width  = wrap.offsetWidth  + 'px';
+  canvas.style.height = wrap.offsetHeight + 'px';
+  render();
+}
+
+// ════════════════════════════════════════════════════
+// COORDINATE TRANSFORMS
+// ════════════════════════════════════════════════════
+function w2s(wx, wy) { // world (mm) → screen (css px)
+  return {
+    x: (wx - state.vpX) * state.vpScale,
+    y: (wy - state.vpY) * state.vpScale
+  };
+}
+function s2w(sx, sy) { // screen (css px) → world (mm)
+  return {
+    x: sx / state.vpScale + state.vpX,
+    y: sy / state.vpScale + state.vpY
+  };
+}
+function canvasToCss(e) { // canvas event → css px
+  const r = canvas.getBoundingClientRect();
+  const src = e.touches ? e.touches[0] : e;
+  return { x: src.clientX - r.left, y: src.clientY - r.top };
+}
+
+// ════════════════════════════════════════════════════
+// GEOMETRY HELPERS
+// ════════════════════════════════════════════════════
+function dist(a, b) {
+  return Math.hypot(b.x - a.x, b.y - a.y);
+}
+function polygonArea(pts) {
+  let a = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const j = (i + 1) % pts.length;
+    a += pts[i].x * pts[j].y - pts[j].x * pts[i].y;
+  }
+  return Math.abs(a) / 2;
+}
+function pointInPolygon(p, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].x, yi = poly[i].y;
+    const xj = poly[j].x, yj = poly[j].y;
+    if (((yi > p.y) !== (yj > p.y)) &&
+        (p.x < (xj - xi) * (p.y - yi) / (yj - yi) + xi)) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+// Sutherland-Hodgman polygon clipping
+function edgeSide(p, a, b) {
+  return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+}
+function lineIntersect(p1, p2, p3, p4) {
+  const d1 = { x: p2.x - p1.x, y: p2.y - p1.y };
+  const d2 = { x: p4.x - p3.x, y: p4.y - p3.y };
+  const cross = d1.x * d2.y - d1.y * d2.x;
+  if (Math.abs(cross) < 1e-9) return null;
+  const t = ((p3.x - p1.x) * d2.y - (p3.y - p1.y) * d2.x) / cross;
+  return { x: p1.x + t * d1.x, y: p1.y + t * d1.y };
+}
+function clipPolygon(subject, clip) {
+  let output = subject.slice();
+  const n = clip.length;
+  for (let i = 0; i < n; i++) {
+    if (!output.length) return [];
+    const input = output.slice();
+    output = [];
+    const A = clip[(i + n - 1) % n];
+    const B = clip[i];
+    for (let j = 0; j < input.length; j++) {
+      const P = input[(j + input.length - 1) % input.length];
+      const Q = input[j];
+      const sP = edgeSide(P, A, B) >= 0;
+      const sQ = edgeSide(Q, A, B) >= 0;
+      if (sQ) {
+        if (!sP) output.push(lineIntersect(P, Q, A, B));
+        output.push(Q);
+      } else if (sP) {
+        output.push(lineIntersect(P, Q, A, B));
+      }
+    }
+  }
+  return output;
+}
+
+function rectPoly(x, y, w, h) {
+  return [{x,y},{x:x+w,y},{x:x+w,y:y+h},{x,y:y+h}];
+}
+function polyArea(pts) {
+  return polygonArea(pts);
+}
+
+// ════════════════════════════════════════════════════
+// LAYOUT ENGINE
+// ════════════════════════════════════════════════════
+function generateLayout() {
+  const room = state.rooms[state.activeRoom];
+  if (!room.vertices.length || room.vertices.length < 3) {
+    alert('Bitte zuerst einen Raum zeichnen (mind. 3 Eckpunkte).');
+    return;
+  }
+
+  // Sync mobile inputs
+  const mSel = document.getElementById('m-sel-plate');
+  if (mSel) state.plateType = mSel.value;
+  else {
+    const dSel = document.getElementById('sel-plate');
+    if (dSel) state.plateType = dSel.value;
+  }
+
+  const offX = parseFloat(document.getElementById('off-x')?.value || 0);
+  const offY = parseFloat(document.getElementById('off-y')?.value || 0);
+  state.offsetX = offX;
+  state.offsetY = offY;
+
+  const pts = room.vertices;
+  const minX = Math.min(...pts.map(p => p.x));
+  const minY = Math.min(...pts.map(p => p.y));
+  const maxX = Math.max(...pts.map(p => p.x));
+  const maxY = Math.max(...pts.map(p => p.y));
+
+  // Plate dimensions based on orientation
+  const pw = state.orientation === 0 ? PLATE_W : PLATE_H; // width in x
+  const ph = state.orientation === 0 ? PLATE_H : PLATE_W; // height in y
+
+  const placements = [];
+  let fullCount = 0, cutCount = 0;
+  let cutArea = 0, fullArea = 0, roomAreaM2 = 0;
+
+  roomAreaM2 = polygonArea(pts) / 1e6;
+
+  // Grid starting a bit before the room (offset subtracted)
+  const startX = minX - (((minX - offX) % pw) + pw) % pw;
+  const startY = minY - (((minY - offY) % ph) + ph) % ph;
+
+  for (let gy = startY; gy < maxY; gy += ph) {
+    for (let gx = startX; gx < maxX; gx += pw) {
+      const plate = rectPoly(gx, gy, pw, ph);
+      const clipped = clipPolygon(plate, pts);
+      if (!clipped.length) continue;
+
+      const clippedArea = polyArea(clipped);
+      const plateArea   = pw * ph;
+      const ratio = clippedArea / plateArea;
+
+      if (ratio < 0.005) continue; // ignore slivers
+
+      const isFull = ratio > 0.995;
+      placements.push({
+        x: gx, y: gy, w: pw, h: ph,
+        clipped,
+        isFull,
+        area: clippedArea,
+      });
+      if (isFull) { fullCount++; fullArea += plateArea; }
+      else        { cutCount++;  cutArea  += plateArea; }
+    }
+  }
+
+  const totalPlatesNeeded = fullCount + cutCount;
+  const usedArea = placements.reduce((s, p) => s + p.area, 0) / 1e6;
+  const purchasedArea = (fullCount + cutCount) * PLATE_AREA;
+  const wasteM2 = purchasedArea - roomAreaM2;
+  const wastePct = purchasedArea > 0 ? (wasteM2 / purchasedArea * 100) : 0;
+
+  state.layout = {
+    placements,
+    stats: {
+      fullCount, cutCount, totalPlatesNeeded,
+      roomAreaM2, purchasedArea, wasteM2, wastePct
+    }
+  };
+
+  updateStückliste();
+  render();
+  document.getElementById('list-panel').style.display = 'block';
+}
+
+function optimizeLayout() {
+  const room = state.rooms[state.activeRoom];
+  if (!room.vertices.length || room.vertices.length < 3) return;
+
+  const pts = room.vertices;
+  const pw = state.orientation === 0 ? PLATE_W : PLATE_H;
+  const ph = state.orientation === 0 ? PLATE_H : PLATE_W;
+
+  let bestWaste = Infinity, bestOX = 0, bestOY = 0;
+  const steps = 6;
+
+  for (let ix = 0; ix < steps; ix++) {
+    for (let iy = 0; iy < steps; iy++) {
+      const ox = Math.round((pw / steps) * ix);
+      const oy = Math.round((ph / steps) * iy);
+
+      // Quick estimate
+      const minX = Math.min(...pts.map(p => p.x));
+      const minY = Math.min(...pts.map(p => p.y));
+      const maxX = Math.max(...pts.map(p => p.x));
+      const maxY = Math.max(...pts.map(p => p.y));
+      const startX = minX - (((minX - ox) % pw) + pw) % pw;
+      const startY = minY - (((minY - oy) % ph) + ph) % ph;
+
+      let cut = 0;
+      for (let gy = startY; gy < maxY; gy += ph) {
+        for (let gx = startX; gx < maxX; gx += pw) {
+          const plate = rectPoly(gx, gy, pw, ph);
+          const clipped = clipPolygon(plate, pts);
+          if (!clipped.length) continue;
+          const ratio = polyArea(clipped) / (pw * ph);
+          if (ratio < 0.005) continue;
+          if (ratio < 0.995) cut++;
+        }
+      }
+      if (cut < bestWaste) { bestWaste = cut; bestOX = ox; bestOY = oy; }
+    }
+  }
+
+  document.getElementById('off-x').value = bestOX;
+  document.getElementById('off-y').value = bestOY;
+  state.offsetX = bestOX;
+  state.offsetY = bestOY;
+  generateLayout();
+}
+
+// ════════════════════════════════════════════════════
+// RENDERER
+// ════════════════════════════════════════════════════
+function render() {
+  const W = canvas.width / devicePixelRatio;
+  const H = canvas.height / devicePixelRatio;
+  ctx.save();
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+  ctx.clearRect(0, 0, W, H);
+
+  drawBackground();
+  drawGrid(W, H);
+
+  // Draw layout
+  if (state.layout) drawLayout();
+
+  // Draw all rooms
+  state.rooms.forEach((room, i) => drawRoom(room, i === state.activeRoom));
+
+  drawScale(W, H);
+  ctx.restore();
+}
+
+function drawGrid(W, H) {
+  const gridMm = smartGridSize();
+  ctx.strokeStyle = COLORS.grid;
+  ctx.lineWidth = 0.5;
+  const start = s2w(0, 0);
+  const end   = s2w(W, H);
+  const sx = Math.floor(start.x / gridMm) * gridMm;
+  const sy = Math.floor(start.y / gridMm) * gridMm;
+  for (let x = sx; x <= end.x + gridMm; x += gridMm) {
+    const s = w2s(x, 0);
+    ctx.beginPath(); ctx.moveTo(s.x, 0); ctx.lineTo(s.x, H); ctx.stroke();
+  }
+  for (let y = sy; y <= end.y + gridMm; y += gridMm) {
+    const s = w2s(0, y);
+    ctx.beginPath(); ctx.moveTo(0, s.y); ctx.lineTo(W, s.y); ctx.stroke();
+  }
+}
+
+function smartGridSize() {
+  const targetPx = 60;
+  const mmPerPx = 1 / state.vpScale;
+  const raw = targetPx * mmPerPx;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const norm = raw / mag;
+  let nice;
+  if      (norm < 1.5) nice = 1;
+  else if (norm < 3.5) nice = 2;
+  else if (norm < 7.5) nice = 5;
+  else                 nice = 10;
+  return nice * mag;
+}
+
+function drawRoom(room, isActive) {
+  const pts = room.vertices;
+  if (!pts.length) return;
+
+  ctx.save();
+
+  if (pts.length >= 3) {
+    // Fill
+    ctx.beginPath();
+    const p0 = w2s(pts[0].x, pts[0].y);
+    ctx.moveTo(p0.x, p0.y);
+    for (let i = 1; i < pts.length; i++) {
+      const p = w2s(pts[i].x, pts[i].y);
+      ctx.lineTo(p.x, p.y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = isActive ? 'rgba(219,234,254,.4)' : 'rgba(226,232,240,.3)';
+    ctx.fill();
+  }
+
+  // Edges + measurements
+  ctx.strokeStyle = isActive ? COLORS.roomEdge : '#94a3b8';
+  ctx.lineWidth = isActive ? 2 : 1;
+  ctx.setLineDash([]);
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i];
+    const b = pts[(i + 1) % pts.length];
+    const closed = pts.length >= 3;
+    if (!closed && i === pts.length - 1) continue;
+
+    const sa = w2s(a.x, a.y);
+    const sb = w2s(b.x, b.y);
+    ctx.beginPath(); ctx.moveTo(sa.x, sa.y); ctx.lineTo(sb.x, sb.y); ctx.stroke();
+
+    // Wall length label
+    const len = dist(a, b);
+    if (len > 50 && state.vpScale > 0.1) {
+      const mx = (sa.x + sb.x) / 2;
+      const my = (sa.y + sb.y) / 2;
+      const angle = Math.atan2(sb.y - sa.y, sb.x - sa.x);
+      ctx.save();
+      ctx.translate(mx, my);
+      ctx.rotate(angle);
+      ctx.fillStyle = COLORS.measure;
+      ctx.font = `${Math.max(9, Math.min(12, state.vpScale * 100))}px system-ui`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(formatLen(len), 0, -3);
+      ctx.restore();
+    }
+  }
+
+  // Vertices
+  pts.forEach((p, i) => {
+    const sp = w2s(p.x, p.y);
+    ctx.beginPath();
+    ctx.arc(sp.x, sp.y, isActive ? 5 : 3, 0, Math.PI * 2);
+    ctx.fillStyle = isActive ? COLORS.vertex : '#94a3b8';
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  });
+
+  // Pending vertex line
+  if (isActive && state.tool === 'draw' && pts.length >= 1 && state.pendingVertex) {
+    const last = pts[pts.length - 1];
+    const sl = w2s(last.x, last.y);
+    const sp = w2s(state.pendingVertex.x, state.pendingVertex.y);
+    ctx.beginPath();
+    ctx.moveTo(sl.x, sl.y);
+    ctx.lineTo(sp.x, sp.y);
+    ctx.strokeStyle = 'rgba(37,99,235,.5)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([6, 4]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  ctx.restore();
+}
+
+function drawLayout() {
+  const pw = state.orientation === 0 ? PLATE_W : PLATE_H;
+  const ph = state.orientation === 0 ? PLATE_H : PLATE_W;
+
+  state.layout.placements.forEach(p => {
+    ctx.save();
+    const clipped = p.clipped.map(pt => w2s(pt.x, pt.y));
+
+    ctx.beginPath();
+    ctx.moveTo(clipped[0].x, clipped[0].y);
+    for (let i = 1; i < clipped.length; i++) ctx.lineTo(clipped[i].x, clipped[i].y);
+    ctx.closePath();
+
+    ctx.fillStyle   = p.isFull ? COLORS.full : COLORS.cut;
+    ctx.strokeStyle = p.isFull ? COLORS.fullEdge : COLORS.cutEdge;
+    ctx.lineWidth = 1;
+    ctx.fill();
+    ctx.stroke();
+
+    // Groove pattern
+    if (state.vpScale > 0.15) {
+      drawGroovePattern(p);
+    }
+
+    ctx.restore();
+  });
+}
+
+function drawGroovePattern(p) {
+  const pw = state.orientation === 0 ? PLATE_W : PLATE_H;
+  const ph = state.orientation === 0 ? PLATE_H : PLATE_W;
+  const cc = 150;
+
+  ctx.save();
+  ctx.strokeStyle = COLORS.pipe;
+  ctx.lineWidth = Math.max(0.5, state.vpScale * 3);
+  ctx.setLineDash([]);
+
+  if (state.plateType === 'maander') {
+    // Draw mäander lines along the long axis (ph direction)
+    const numTracks = Math.floor(pw / cc);
+    for (let i = 0; i < numTracks; i++) {
+      const wx = p.x + cc * 0.5 + i * cc;
+      const sa = w2s(wx, p.y + 10);
+      const sb = w2s(wx, p.y + ph - 10);
+      ctx.beginPath();
+      ctx.moveTo(sa.x, sa.y);
+      ctx.lineTo(sb.x, sb.y);
+      ctx.stroke();
+    }
+  } else {
+    // Schnecke: concentric rectangles
+    const cx = p.x + pw / 2;
+    const cy = p.y + ph / 2;
+    for (let r = cc; r < Math.min(pw, ph) / 2 - 10; r += cc) {
+      const s = w2s(cx - r, cy - r * (ph / pw));
+      const e = w2s(cx + r, cy + r * (ph / pw));
+      ctx.strokeRect(s.x, s.y, e.x - s.x, e.y - s.y);
+    }
+  }
+  ctx.restore();
+}
+
+function drawScale(W, H) {
+  // Scale bar bottom-left
+  const targetPx = 80;
+  const mmPerPx  = 1 / state.vpScale;
+  const mmRaw    = targetPx * mmPerPx;
+  const nice     = niceNumber(mmRaw);
+  const barPx    = nice * state.vpScale;
+
+  const x = 20, y = H - 30;
+  ctx.save();
+  ctx.strokeStyle = '#475569';
+  ctx.lineWidth = 2;
+  ctx.fillStyle = '#475569';
+  ctx.font = '11px system-ui';
+  ctx.textAlign = 'center';
+
+  ctx.beginPath();
+  ctx.moveTo(x, y); ctx.lineTo(x + barPx, y);
+  ctx.moveTo(x, y - 5); ctx.lineTo(x, y + 5);
+  ctx.moveTo(x + barPx, y - 5); ctx.lineTo(x + barPx, y + 5);
+  ctx.stroke();
+  ctx.fillText(formatLen(nice), x + barPx / 2, y - 8);
+  ctx.restore();
+}
+
+function niceNumber(n) {
+  const mag = Math.pow(10, Math.floor(Math.log10(n)));
+  const norm = n / mag;
+  let nice;
+  if      (norm < 1.5) nice = 1;
+  else if (norm < 3.5) nice = 2;
+  else if (norm < 7.5) nice = 5;
+  else                 nice = 10;
+  return nice * mag;
+}
+
+function formatLen(mm) {
+  if (mm >= 1000) return (mm / 1000).toFixed(mm % 1000 === 0 ? 0 : 2) + ' m';
+  return Math.round(mm) + ' mm';
+}
+
+// ════════════════════════════════════════════════════
+// STÜCKLISTE
+// ════════════════════════════════════════════════════
+function updateStückliste() {
+  if (!state.layout) return;
+  const s = state.layout.stats;
+  const html = `
+    <div class="list-card full-chip">
+      <div class="lc-title">Vollplatten</div>
+      <div class="lc-val">${s.fullCount}</div>
+      <div class="lc-sub">á 0,72 m²</div>
+    </div>
+    <div class="list-card cut-chip">
+      <div class="lc-title">Schnittplatten</div>
+      <div class="lc-val">${s.cutCount}</div>
+      <div class="lc-sub">anteilig</div>
+    </div>
+    <div class="list-card">
+      <div class="lc-title">Gesamt Platten</div>
+      <div class="lc-val">${s.totalPlatesNeeded}</div>
+      <div class="lc-sub">${(s.purchasedArea).toFixed(2)} m² gekauft</div>
+    </div>
+    <div class="list-card">
+      <div class="lc-title">Raumfläche</div>
+      <div class="lc-val">${s.roomAreaM2.toFixed(2)} m²</div>
+      <div class="lc-sub">netto</div>
+    </div>
+    <div class="list-card waste-chip">
+      <div class="lc-title">Verschnitt</div>
+      <div class="lc-val">${s.wastePct.toFixed(1)} %</div>
+      <div class="lc-sub">${s.wasteM2.toFixed(2)} m²</div>
+    </div>
+  `;
+  const el1 = document.getElementById('list-grid');
+  const el2 = document.getElementById('m-list-grid');
+  if (el1) el1.innerHTML = html;
+  if (el2) el2.innerHTML = html;
+}
+
+// ════════════════════════════════════════════════════
+// ROOM DRAWING EVENTS
+// ════════════════════════════════════════════════════
+let lastTapTime = 0;
+
+function handlePointerDown(cssX, cssY) {
+  if (state.tool === 'move') {
+    state.dragging = true;
+    state.dragStart = { x: cssX, y: cssY, vpX: state.vpX, vpY: state.vpY };
+    return;
+  }
+  if (state.tool === 'calib') {
+    const wpt = s2w(cssX, cssY);
+    if (!state.calibStart) {
+      state.calibStart = wpt;
+      document.getElementById('hint').textContent = '📍 Zweiten Punkt klicken...';
+    } else {
+      state.calibEnd = wpt;
+      state.pendingVertex = null;
+      openCalibModal();
+    }
+    render();
+    return;
+  }
+  // draw mode: add vertex on single click, close on double-click
+  const now = Date.now();
+  const isDouble = now - lastTapTime < 350;
+  lastTapTime = now;
+
+  const wpt = s2w(cssX, cssY);
+
+  if (isDouble) {
+    // Close polygon
+    const room = state.rooms[state.activeRoom];
+    if (room.vertices.length >= 3) {
+      state.pendingVertex = null;
+      render();
+    }
+    return;
+  }
+
+  const room = state.rooms[state.activeRoom];
+  room.vertices.push(wpt);
+  state.layout = null;
+  render();
+}
+
+function handlePointerMove(cssX, cssY) {
+  if (state.dragging && state.tool === 'move') {
+    const dx = (cssX - state.dragStart.x) / state.vpScale;
+    const dy = (cssY - state.dragStart.y) / state.vpScale;
+    state.vpX = state.dragStart.vpX - dx;
+    state.vpY = state.dragStart.vpY - dy;
+    render();
+    return;
+  }
+  if (state.tool === 'draw' || state.tool === 'calib') {
+    state.pendingVertex = s2w(cssX, cssY);
+    render();
+  }
+}
+
+function handlePointerUp() {
+  state.dragging = false;
+}
+
+// Mouse
+canvas.addEventListener('mousedown', e => {
+  const c = canvasToCss(e);
+  handlePointerDown(c.x, c.y);
+});
+canvas.addEventListener('mousemove', e => {
+  const c = canvasToCss(e);
+  handlePointerMove(c.x, c.y);
+});
+canvas.addEventListener('mouseup', handlePointerUp);
+canvas.addEventListener('mouseleave', handlePointerUp);
+
+// Wheel zoom
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const c = canvasToCss(e);
+  const factor = e.deltaY < 0 ? 1.1 : 0.9;
+  const wBefore = s2w(c.x, c.y);
+  state.vpScale *= factor;
+  state.vpScale = Math.min(5, Math.max(0.02, state.vpScale));
+  const wAfter = s2w(c.x, c.y);
+  state.vpX -= wAfter.x - wBefore.x;
+  state.vpY -= wAfter.y - wBefore.y;
+  render();
+}, { passive: false });
+
+// Touch
+let touchState = { mode: null, lastPinchDist: 0, lastX: 0, lastY: 0 };
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (e.touches.length === 2) {
+    touchState.mode = 'pinch';
+    touchState.lastPinchDist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
+    const r = canvas.getBoundingClientRect();
+    touchState.midX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - r.left;
+    touchState.midY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - r.top;
+  } else if (e.touches.length === 1) {
+    touchState.mode = 'tap';
+    const c = canvasToCss(e);
+    touchState.startX = c.x; touchState.startY = c.y;
+    touchState.lastX  = c.x; touchState.lastY  = c.y;
+    touchState.moved  = false;
+    if (state.tool === 'move') {
+      state.dragging = true;
+      state.dragStart = { x: c.x, y: c.y, vpX: state.vpX, vpY: state.vpY };
+    }
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (e.touches.length === 2 && touchState.mode === 'pinch') {
+    const r = canvas.getBoundingClientRect();
+    const d = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
+    const factor = d / touchState.lastPinchDist;
+    touchState.lastPinchDist = d;
+    const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - r.left;
+    const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - r.top;
+    const wb = s2w(midX, midY);
+    state.vpScale *= factor;
+    state.vpScale = Math.min(5, Math.max(0.02, state.vpScale));
+    const wa = s2w(midX, midY);
+    state.vpX -= wa.x - wb.x;
+    state.vpY -= wa.y - wb.y;
+    render();
+  } else if (e.touches.length === 1) {
+    const c = canvasToCss(e);
+    const dx = c.x - touchState.lastX;
+    const dy = c.y - touchState.lastY;
+    if (Math.hypot(dx, dy) > 8) touchState.moved = true;
+    touchState.lastX = c.x; touchState.lastY = c.y;
+    handlePointerMove(c.x, c.y);
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  if (e.changedTouches.length === 1 && touchState.mode === 'tap' && !touchState.moved) {
+    const c = { x: touchState.startX, y: touchState.startY };
+    handlePointerDown(c.x, c.y);
+  }
+  state.dragging = false;
+  touchState.mode = null;
+}, { passive: false });
+
+// ════════════════════════════════════════════════════
+// VIEW
+// ════════════════════════════════════════════════════
+function zoom(factor) {
+  const W = canvas.width / devicePixelRatio;
+  const H = canvas.height / devicePixelRatio;
+  const wb = s2w(W / 2, H / 2);
+  state.vpScale *= factor;
+  state.vpScale = Math.min(5, Math.max(0.02, state.vpScale));
+  const wa = s2w(W / 2, H / 2);
+  state.vpX -= wa.x - wb.x;
+  state.vpY -= wa.y - wb.y;
+  render();
+}
+
+function resetView() {
+  const room = state.rooms[state.activeRoom];
+  const W = canvas.width / devicePixelRatio;
+  const H = canvas.height / devicePixelRatio;
+
+  if (room.vertices.length >= 2) {
+    const xs = room.vertices.map(p => p.x);
+    const ys = room.vertices.map(p => p.y);
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const rw = maxX - minX, rh = maxY - minY;
+    state.vpScale = Math.min((W * 0.8) / (rw || 1), (H * 0.8) / (rh || 1));
+    state.vpScale = Math.min(2, Math.max(0.05, state.vpScale));
+    state.vpX = minX - (W / state.vpScale - rw) / 2;
+    state.vpY = minY - (H / state.vpScale - rh) / 2;
+  } else {
+    state.vpScale = 0.3;
+    state.vpX = -W / state.vpScale * 0.1;
+    state.vpY = -H / state.vpScale * 0.1;
+  }
+  render();
+}
+
+// ════════════════════════════════════════════════════
+// TOOL SWITCHING
+// ════════════════════════════════════════════════════
+function setTool(t) {
+  state.tool = t;
+  canvas.classList.toggle('pan', t === 'move');
+  ['t-draw','t-move','t-calib','tb-calib'].forEach(id => {
+    document.getElementById(id)?.classList.remove('active');
+  });
+  const map = { draw: 't-draw', move: 't-move', calib: 't-calib' };
+  document.getElementById(map[t])?.classList.add('active');
+
+  const hint = document.getElementById('hint');
+  if (t === 'draw')
+    hint.textContent = 'Klicken = Eckpunkt · Doppelklick = Schließen';
+  else if (t === 'calib')
+    hint.textContent = '📍 Ersten Kalibrierungspunkt klicken...';
+  else
+    hint.textContent = 'Ziehen = Ansicht verschieben · Mausrad = Zoom';
+}
+
+function setOrientation(deg, btn) {
+  state.orientation = deg;
+  state.layout = null;
+  document.querySelectorAll('.orient-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  render();
+}
+
+// ════════════════════════════════════════════════════
+// ROOMS
+// ════════════════════════════════════════════════════
+const ROOM_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899'];
+
+function addRoom() {
+  const idx = state.rooms.length;
+  state.rooms.push({
+    id: Date.now(),
+    name: `Raum ${idx + 1}`,
+    vertices: [],
+    color: ROOM_COLORS[idx % ROOM_COLORS.length]
+  });
+  state.activeRoom = state.rooms.length - 1;
+  state.layout = null;
+  updateRoomList();
+  render();
+}
+
+function setActiveRoom(idx) {
+  state.activeRoom = idx;
+  state.layout = null;
+  updateRoomList();
+  resetView();
+}
+
+function clearRoom() {
+  state.rooms[state.activeRoom].vertices = [];
+  state.layout = null;
+  render();
+}
+
+function deleteRoom(idx) {
+  if (state.rooms.length === 1) { clearRoom(); return; }
+  state.rooms.splice(idx, 1);
+  state.activeRoom = Math.min(state.activeRoom, state.rooms.length - 1);
+  state.layout = null;
+  updateRoomList();
+  render();
+}
+
+function updateRoomList() {
+  const list1 = document.getElementById('room-list');
+  const list2 = document.getElementById('m-room-list');
+  const html = state.rooms.map((r, i) => `
+    <div class="room-item ${i === state.activeRoom ? 'active' : ''}" onclick="setActiveRoom(${i})">
+      <div class="room-dot" style="background:${r.color}"></div>
+      <span class="room-name">${r.name}</span>
+      <button class="room-del" onclick="event.stopPropagation();deleteRoom(${i})">×</button>
+    </div>
+  `).join('');
+  if (list1) list1.innerHTML = html;
+  if (list2) list2.innerHTML = html;
+
+  const hdr = document.getElementById('hdr-room');
+  if (hdr) hdr.textContent = state.rooms[state.activeRoom].name;
+}
+
+// ════════════════════════════════════════════════════
+// SIDEBAR TABS
+// ════════════════════════════════════════════════════
+function showSideTab(name, btn) {
+  ['rooms','layout','plates'].forEach(n => {
+    document.getElementById(`sp-${n}`)?.classList.add('hidden');
+  });
+  document.getElementById(`sp-${name}`)?.classList.remove('hidden');
+  document.querySelectorAll('#sidebar .stab').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  if (name === 'plates') drawPatternCanvas();
+}
+
+// ════════════════════════════════════════════════════
+// MOBILE PANELS
+// ════════════════════════════════════════════════════
+let activeMobilePanel = null;
+
+function showMobilePanel(name, btn) {
+  const panels = { draw: 'mp-draw', layout: 'mp-layout', rooms: 'mp-rooms', list: 'mp-list' };
+  const pid = panels[name];
+  const panel = document.getElementById(pid);
+  if (!panel) return;
+
+  if (activeMobilePanel === pid) {
+    closeMobilePanel();
+    return;
+  }
+  closeMobilePanel(false);
+  panel.classList.remove('hidden');
+  activeMobilePanel = pid;
+  document.querySelectorAll('.mobile-tabs .stab').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  updateRoomList();
+}
+
+function closeMobilePanel(resetBtn = true) {
+  if (activeMobilePanel) {
+    document.getElementById(activeMobilePanel)?.classList.add('hidden');
+    activeMobilePanel = null;
+  }
+  if (resetBtn)
+    document.querySelectorAll('.mobile-tabs .stab').forEach(b => b.classList.remove('active'));
+}
+
+// ════════════════════════════════════════════════════
+// MODAL
+// ════════════════════════════════════════════════════
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+}
+function confirmWallLength() {
+  const val = parseFloat(document.getElementById('wall-len-input').value);
+  if (!isNaN(val) && state.wallModal.resolve) {
+    state.wallModal.resolve(val);
+  }
+  closeModal('modal-wall');
+}
+
+// ════════════════════════════════════════════════════
+// PATTERN PREVIEW CANVAS
+// ════════════════════════════════════════════════════
+function drawPatternCanvas() {
+  const pc = document.getElementById('pattern-canvas');
+  if (!pc) return;
+  const pctx = pc.getContext('2d');
+  const W = pc.width, H = pc.height;
+  pctx.clearRect(0, 0, W, H);
+
+  // Draw both patterns side by side
+  const patterns = ['maander', 'schnecke'];
+  const pw2 = W / 2;
+  patterns.forEach((pat, pi) => {
+    const ox = pi * pw2 + 4, oy = 4;
+    const bw = pw2 - 8, bh = H - 8;
+
+    pctx.strokeStyle = '#e2e8f0';
+    pctx.lineWidth = 1;
+    pctx.strokeRect(ox, oy, bw, bh);
+
+    pctx.fillStyle = '#eff6ff';
+    pctx.fillRect(ox, oy, bw, bh);
+
+    pctx.strokeStyle = '#10b981';
+    pctx.lineWidth = 1.5;
+    pctx.lineJoin = 'round';
+    pctx.lineCap = 'round';
+
+    if (pat === 'maander') {
+      const tracks = 4;
+      const gap = bw / (tracks + 1);
+      pctx.beginPath();
+      for (let t = 0; t < tracks; t++) {
+        const x = ox + gap * (t + 1);
+        if (t % 2 === 0) {
+          pctx.moveTo(x, oy + 8);
+          pctx.lineTo(x, oy + bh - 8);
+          if (t < tracks - 1) {
+            pctx.arcTo(x + gap, oy + bh - 8, x + gap, oy + 8, gap / 2);
+          }
+        } else {
+          pctx.moveTo(x, oy + bh - 8);
+          pctx.lineTo(x, oy + 8);
+          if (t < tracks - 1) {
+            pctx.arcTo(x + gap, oy + 8, x + gap, oy + bh - 8, gap / 2);
+          }
+        }
+      }
+      pctx.stroke();
+    } else {
+      const cx = ox + bw / 2, cy = oy + bh / 2;
+      pctx.beginPath();
+      const maxR = Math.min(bw, bh) / 2 - 6;
+      for (let r = maxR; r > 8; r -= 12) {
+        pctx.rect(cx - r, cy - r * (bh / bw), r * 2, r * 2 * (bh / bw));
+      }
+      pctx.stroke();
+    }
+
+    pctx.fillStyle = '#475569';
+    pctx.font = '9px system-ui';
+    pctx.textAlign = 'center';
+    pctx.fillText(pat === 'maander' ? 'Mäander' : 'Schnecke', ox + bw / 2, oy + bh + -2);
+  });
+}
+
+// ════════════════════════════════════════════════════
+// BACKGROUND FLOOR PLAN
+// ════════════════════════════════════════════════════
+function drawBackground() {
+  if (!state.bgImage) return;
+  const img = state.bgImage;
+  const tl = w2s(state.bgOffsetX, state.bgOffsetY);
+  const br = w2s(
+    state.bgOffsetX + img.width  * state.bgMmPerPx,
+    state.bgOffsetY + img.height * state.bgMmPerPx
+  );
+  ctx.save();
+  ctx.globalAlpha = state.bgOpacity;
+  ctx.drawImage(img, tl.x, tl.y, br.x - tl.x, br.y - tl.y);
+  ctx.restore();
+
+  // Calibration line overlay
+  if (state.tool === 'calib' && state.calibStart) {
+    const sa = w2s(state.calibStart.x, state.calibStart.y);
+    ctx.save();
+    ctx.strokeStyle = '#f97316';
+    ctx.fillStyle   = '#f97316';
+    ctx.lineWidth   = 2;
+    ctx.setLineDash([8, 4]);
+    ctx.beginPath(); ctx.arc(sa.x, sa.y, 5, 0, Math.PI*2); ctx.fill();
+    const ep = state.calibEnd || state.pendingVertex;
+    if (ep) {
+      const sb = w2s(ep.x, ep.y);
+      ctx.beginPath(); ctx.moveTo(sa.x, sa.y); ctx.lineTo(sb.x, sb.y); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath(); ctx.arc(sb.x, sb.y, 5, 0, Math.PI*2); ctx.fill();
+      const d = dist(state.calibStart, ep);
+      ctx.fillStyle = 'rgba(0,0,0,.75)';
+      ctx.font = 'bold 11px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText(formatLen(d), (sa.x+sb.x)/2, (sa.y+sb.y)/2 - 9);
+    }
+    ctx.restore();
+  }
+}
+
+async function handleBgUpload(input) {
+  const file = input.files[0];
+  if (!file) return;
+  input.value = '';
+  if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+    await loadBgPDF(file);
+  } else {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); setBgImage(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); alert('Bild konnte nicht geladen werden.'); };
+    img.src = url;
+  }
+}
+
+async function loadBgPDF(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const lib = window['pdfjs-dist/build/pdf'];
+    if (!lib) { alert('PDF-Unterstützung nicht verfügbar.'); return; }
+    lib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    const pdf   = await lib.getDocument(url).promise;
+    const page  = await pdf.getPage(1);
+    const vp    = page.getViewport({ scale: 2 });
+    const off   = document.createElement('canvas');
+    off.width   = vp.width; off.height = vp.height;
+    await page.render({ canvasContext: off.getContext('2d'), viewport: vp }).promise;
+    const img   = new Image();
+    img.onload  = () => setBgImage(img);
+    img.src     = off.toDataURL();
+  } catch(e) {
+    alert('PDF konnte nicht geladen werden: ' + e.message);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function setBgImage(img) {
+  state.bgImage    = img;
+  state.bgMmPerPx  = 1;
+  state.bgOffsetX  = 0;
+  state.bgOffsetY  = 0;
+  const W = canvas.width  / devicePixelRatio;
+  const H = canvas.height / devicePixelRatio;
+  state.vpScale = Math.min((W * 0.9) / img.width, (H * 0.9) / img.height);
+  state.vpX = -(W / state.vpScale - img.width)  / 2;
+  state.vpY = -(H / state.vpScale - img.height) / 2;
+  document.getElementById('bg-controls').style.display = 'block';
+  render();
+}
+
+function removeBg() {
+  state.bgImage = null;
+  document.getElementById('bg-controls').style.display = 'none';
+  render();
+}
+
+// ════════════════════════════════════════════════════
+// CALIBRATION
+// ════════════════════════════════════════════════════
+function startCalib() {
+  if (!state.bgImage) { alert('Bitte zuerst einen Grundriss importieren.'); return; }
+  state.calibStart = null;
+  state.calibEnd   = null;
+  setTool('calib');
+}
+
+function openCalibModal() {
+  document.getElementById('calib-len-input').value = '';
+  document.getElementById('modal-calib').classList.add('open');
+  setTimeout(() => document.getElementById('calib-len-input').focus(), 50);
+}
+
+function cancelCalib() {
+  closeModal('modal-calib');
+  state.calibStart = null;
+  state.calibEnd   = null;
+  setTool('draw');
+  render();
+}
+
+function confirmCalib() {
+  const val = parseFloat(document.getElementById('calib-len-input').value);
+  if (isNaN(val) || val <= 0) return;
+  closeModal('modal-calib');
+
+  if (!state.calibStart || !state.calibEnd) { setTool('draw'); return; }
+  const worldDist = dist(state.calibStart, state.calibEnd);
+  if (worldDist < 0.001) { setTool('draw'); return; }
+
+  const imgPixDist  = worldDist / state.bgMmPerPx;
+  const newMmPerPx  = val / imgPixDist;
+  const ratio       = newMmPerPx / state.bgMmPerPx; // > 1 → image covers more mm
+
+  // Keep image visually stable: vpScale * bgMmPerPx = const → vpScale /= ratio
+  // Keep world origin at same screen pos: vpX * ratio, vpY * ratio
+  state.vpScale /= ratio;
+  state.vpX     *= ratio;
+  state.vpY     *= ratio;
+
+  // Scale existing room vertices to new world-mm space
+  state.rooms.forEach(r => {
+    r.vertices = r.vertices.map(v => ({ x: v.x * ratio, y: v.y * ratio }));
+  });
+  state.layout   = null;
+
+  state.bgMmPerPx   = newMmPerPx;
+  state.calibStart  = null;
+  state.calibEnd    = null;
+  setTool('draw');
+  render();
+}
+
+// Enter key in calib modal
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && document.getElementById('modal-calib').classList.contains('open')) {
+    confirmCalib();
+  }
+});
+
+// ════════════════════════════════════════════════════
+// INIT
+// ════════════════════════════════════════════════════
+window.addEventListener('resize', resize);
+resize();
+updateRoomList();
+resetView();
+setTool('draw');
+drawPatternCanvas();
+</script>
+</body>
+</html>
