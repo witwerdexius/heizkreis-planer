@@ -10,7 +10,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#f1f5f9;color:#1e293
 
 /* ── Header ── */
 header{background:#1d4ed8;color:#fff;padding:10px 16px;display:flex;align-items:center;gap:12px;flex-shrink:0;z-index:10;}
-header h1{font-size:1rem;font-weight:700;flex:1;}
+header h1{font-size:1rem;font-weight:700;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
 .hdr-btn{background:rgba(255,255,255,.15);border:none;color:#fff;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:.8rem;white-space:nowrap;}
 .hdr-btn:hover{background:rgba(255,255,255,.25);}
 
@@ -117,6 +117,8 @@ canvas.pan:active{cursor:grabbing;}
   .mobile-panel.hidden{display:none;}
   .list-panel{display:none !important;}
   .canvas-wrap{border-radius:0;}
+  #hdr-room{display:none;}
+  #hdr-version{display:none;}
 }
 
 /* ── Modal ── */
@@ -396,7 +398,7 @@ canvas.pan:active{cursor:grabbing;}
 // ════════════════════════════════════════════════════
 // VERSION  (increment on every release commit)
 // ════════════════════════════════════════════════════
-const VERSION = '2.0';
+const VERSION = '2.1';
 
 // ════════════════════════════════════════════════════
 // CONSTANTS
@@ -1180,10 +1182,11 @@ function drawPipeRouting() {
       const midCross = (prevCross + wc) / 2;
       const rPx      = ARC_R * state.vpScale;
 
-      // Elbow position: further boundary for non-rectangular rooms
+      // Elbow position: shallower of the two endpoints so both tracks can reach the arc.
+      // MAX/MIN was reversed — with MAX the stub on the shorter track would exit the room.
       const elbowPos = prevDown
-        ? Math.max(prevPipeEnd, trackStart)
-        : Math.min(prevPipeEnd, trackStart);
+        ? Math.min(prevPipeEnd, trackStart)
+        : Math.max(prevPipeEnd, trackStart);
 
       ctx.lineWidth = Math.max(1.5, state.vpScale * 5);
       ctx.lineCap   = 'round';
@@ -1233,57 +1236,46 @@ function drawPipeRouting() {
     const trackPt1 = pipeAlongY ? w2s(lastTrack, pipeBoundary1) : w2s(pipeBoundary1, lastTrack);
 
     if (state.pipeEntry) {
-      // Corridor level: PIPE_MARGIN (50mm) from entry wall — supply/return run here
-      const connBoundary = entryMin
-        ? e0segs[0] + PIPE_MARGIN
-        : e0segs[e0segs.length - 1] - PIPE_MARGIN;
-
       const mpt = w2s(state.pipeEntry.x, state.pipeEntry.y);
       const lw  = Math.max(1.5, state.vpScale * 5);
       ctx.lineWidth = lw; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.setLineDash([]);
 
-      // Supply/Return run in corridor at PIPE_MARGIN from entry wall.
-      // Path: manifold → perpendicular to corridor level → along corridor to track → into track start
+      // Direct 2-segment elbow routing — avoids a shared horizontal corridor that would
+      // cross outside the room in L-shaped layouts.
+      // Supply:  manifold → elbow (at manifold.x / pipeBoundary0 level) → track 0 entry
+      // Return:  last track entry → elbow (at manifold.x / pipeBoundary1 level) → manifold
       if (pipeAlongY) {
-        // Portrait: connBoundary is a Y world coord; tracks are X world coords
-        const mAtCorr  = w2s(state.pipeEntry.x, connBoundary);  // manifold to corridor (vertical)
-        const t0AtCorr = w2s(tracks[0],          connBoundary);  // along corridor to first track
-        const t1AtCorr = w2s(lastTrack,           connBoundary);  // along corridor to last track
-
+        // Portrait: elbow is at (manifold.x, pipeBoundary Y)
+        const elbowS = w2s(state.pipeEntry.x, pipeBoundary0);
         ctx.strokeStyle = '#10b981';
         ctx.beginPath();
         ctx.moveTo(mpt.x, mpt.y);
-        ctx.lineTo(mAtCorr.x, mAtCorr.y);
-        ctx.lineTo(t0AtCorr.x, t0AtCorr.y);
-        ctx.lineTo(trackPt0.x, trackPt0.y);  // 50mm stub into track
-        ctx.stroke();
-
-        ctx.strokeStyle = '#ef4444';
-        ctx.beginPath();
-        ctx.moveTo(trackPt1.x, trackPt1.y);  // 50mm stub from last track
-        ctx.lineTo(t1AtCorr.x, t1AtCorr.y);
-        ctx.lineTo(mAtCorr.x, mAtCorr.y);
-        ctx.lineTo(mpt.x, mpt.y);
-        ctx.stroke();
-      } else {
-        // Landscape: connBoundary is an X world coord; tracks are Y world coords
-        const mAtCorr  = w2s(connBoundary, state.pipeEntry.y);  // manifold to corridor (horizontal)
-        const t0AtCorr = w2s(connBoundary, tracks[0]);            // along corridor to first track
-        const t1AtCorr = w2s(connBoundary, lastTrack);            // along corridor to last track
-
-        ctx.strokeStyle = '#10b981';
-        ctx.beginPath();
-        ctx.moveTo(mpt.x, mpt.y);
-        ctx.lineTo(mAtCorr.x, mAtCorr.y);
-        ctx.lineTo(t0AtCorr.x, t0AtCorr.y);
+        ctx.lineTo(elbowS.x, elbowS.y);
         ctx.lineTo(trackPt0.x, trackPt0.y);
         ctx.stroke();
 
+        const elbowR = w2s(state.pipeEntry.x, pipeBoundary1);
         ctx.strokeStyle = '#ef4444';
         ctx.beginPath();
         ctx.moveTo(trackPt1.x, trackPt1.y);
-        ctx.lineTo(t1AtCorr.x, t1AtCorr.y);
-        ctx.lineTo(mAtCorr.x, mAtCorr.y);
+        ctx.lineTo(elbowR.x, elbowR.y);
+        ctx.lineTo(mpt.x, mpt.y);
+        ctx.stroke();
+      } else {
+        // Landscape: elbow is at (pipeBoundary X, manifold.y)
+        const elbowS = w2s(pipeBoundary0, state.pipeEntry.y);
+        ctx.strokeStyle = '#10b981';
+        ctx.beginPath();
+        ctx.moveTo(mpt.x, mpt.y);
+        ctx.lineTo(elbowS.x, elbowS.y);
+        ctx.lineTo(trackPt0.x, trackPt0.y);
+        ctx.stroke();
+
+        const elbowR = w2s(pipeBoundary1, state.pipeEntry.y);
+        ctx.strokeStyle = '#ef4444';
+        ctx.beginPath();
+        ctx.moveTo(trackPt1.x, trackPt1.y);
+        ctx.lineTo(elbowR.x, elbowR.y);
         ctx.lineTo(mpt.x, mpt.y);
         ctx.stroke();
       }
