@@ -396,7 +396,7 @@ canvas.pan:active{cursor:grabbing;}
 // ════════════════════════════════════════════════════
 // VERSION  (increment on every release commit)
 // ════════════════════════════════════════════════════
-const VERSION = '1.9';
+const VERSION = '2.0';
 
 // ════════════════════════════════════════════════════
 // CONSTANTS
@@ -675,10 +675,7 @@ function generateLayout() {
   if (window.innerWidth > 640) {
     document.getElementById('list-panel').style.display = 'block';
   } else {
-    // On mobile: close any open panel, then open the list panel
-    closeMobilePanel(false);
-    const listBtn = document.querySelector('.mobile-tabs .stab:last-child');
-    showMobilePanel('list', listBtn);
+    closeMobilePanel();
   }
 }
 
