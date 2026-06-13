@@ -341,7 +341,7 @@ canvas.pan:active{cursor:grabbing;}
 const PLATE_W    = 600;   // mm (short side)
 const PLATE_H    = 1200;  // mm (long side)
 const PLATE_AREA = (PLATE_W * PLATE_H) / 1e6; // m²
-const PIPE_MARGIN = 50;   // mm — minimum pipe distance from room wall
+const PIPE_MARGIN = 75;   // mm — wall clearance; must be ≥ cc/2=75mm so U-turn arcs stay inside room
 
 const COLORS = {
   room:      '#dbeafe',
@@ -958,32 +958,59 @@ function drawPipeRouting() {
     ctx.stroke();
 
     // Inset outer and inner ends (used for U-turn positioning)
-    const outerEnd  = down ? segs[segs.length - 1] - PIPE_MARGIN : segs[0] + PIPE_MARGIN;
+    const outerEnd   = down ? segs[segs.length - 1] - PIPE_MARGIN : segs[0] + PIPE_MARGIN;
     const trackStart = down ? segs[0] + PIPE_MARGIN : segs[segs.length - 1] - PIPE_MARGIN;
 
-    // Draw U-turn arc if previous track ended at approximately the same boundary
-    if (prevCross !== null && prevPipeEnd !== null &&
-        Math.abs(prevPipeEnd - trackStart) < cc * 0.6) {
-      const rWorld   = Math.abs(wc - prevCross) / 2;
-      const midCross = (prevCross + wc) / 2;
+    // Always draw a U-turn / elbow between consecutive tracks
+    if (prevCross !== null && prevPipeEnd !== null) {
       const prevDown = !down;
+      const rWorld   = Math.abs(wc - prevCross) / 2;   // = cc/2
+      const midCross = (prevCross + wc) / 2;
       const rPx      = rWorld * state.vpScale;
 
-      ctx.beginPath();
+      // "Elbow position": the pipe boundary where the arc lives.
+      // Use whichever end is further from the room interior so both tracks can reach it.
+      const elbowPos = prevDown
+        ? Math.max(prevPipeEnd, trackStart)   // right/bottom: further out
+        : Math.min(prevPipeEnd, trackStart);  // left/top: further out
+
+      ctx.lineWidth = Math.max(1.5, state.vpScale * 5);
+      ctx.lineCap   = 'round';
+      ctx.setLineDash([]);
+
       if (pipeAlongY) {
-        // Arc center at (midCross_x, prevPipeEnd_y); sweeps from angle π to 0
-        // prevDown=true → ended at large y (bottom) → clockwise → curves downward (outside)
-        // prevDown=false → ended at small y (top) → counterclockwise → curves upward (outside)
-        const cs = w2s(midCross, prevPipeEnd);
+        // Stub from prev track end to elbow Y level (if different)
+        if (Math.abs(prevPipeEnd - elbowPos) > 1) {
+          const s1 = w2s(prevCross, prevPipeEnd), s2 = w2s(prevCross, elbowPos);
+          ctx.beginPath(); ctx.moveTo(s1.x, s1.y); ctx.lineTo(s2.x, s2.y); ctx.stroke();
+        }
+        // Arc at elbowPos
+        const cs = w2s(midCross, elbowPos);
+        ctx.beginPath();
         ctx.arc(cs.x, cs.y, rPx, Math.PI, 0, !prevDown);
+        ctx.stroke();
+        // Stub from elbow back to next track start (if different)
+        if (Math.abs(trackStart - elbowPos) > 1) {
+          const s3 = w2s(wc, elbowPos), s4 = w2s(wc, trackStart);
+          ctx.beginPath(); ctx.moveTo(s3.x, s3.y); ctx.lineTo(s4.x, s4.y); ctx.stroke();
+        }
       } else {
-        // Arc center at (prevPipeEnd_x, midCross_y); sweeps from -π/2 to π/2
-        // prevDown=true → ended at large x (right) → clockwise → curves rightward (outside)
-        // prevDown=false → ended at small x (left) → counterclockwise → curves leftward (outside)
-        const cs = w2s(prevPipeEnd, midCross);
+        // Stub from prev track end to elbow X level (if different)
+        if (Math.abs(prevPipeEnd - elbowPos) > 1) {
+          const s1 = w2s(prevPipeEnd, prevCross), s2 = w2s(elbowPos, prevCross);
+          ctx.beginPath(); ctx.moveTo(s1.x, s1.y); ctx.lineTo(s2.x, s2.y); ctx.stroke();
+        }
+        // Arc at elbowPos
+        const cs = w2s(elbowPos, midCross);
+        ctx.beginPath();
         ctx.arc(cs.x, cs.y, rPx, -Math.PI / 2, Math.PI / 2, !prevDown);
+        ctx.stroke();
+        // Stub from elbow back to next track start (if different)
+        if (Math.abs(trackStart - elbowPos) > 1) {
+          const s3 = w2s(elbowPos, wc), s4 = w2s(trackStart, wc);
+          ctx.beginPath(); ctx.moveTo(s3.x, s3.y); ctx.lineTo(s4.x, s4.y); ctx.stroke();
+        }
       }
-      ctx.stroke();
     }
 
     prevCross   = wc;
