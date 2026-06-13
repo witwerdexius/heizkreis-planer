@@ -487,6 +487,17 @@ function clipPolygon(subject, clip) {
 function rectPoly(x, y, w, h) {
   return [{x,y},{x:x+w,y},{x:x+w,y:y+h},{x,y:y+h}];
 }
+// Sutherland-Hodgman requires the clip polygon (room) to be clockwise in
+// screen/world coords (Y-down). Normalize winding here.
+function ensureClockwise(pts) {
+  let a = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const j = (i + 1) % pts.length;
+    a += pts[i].x * pts[j].y - pts[j].x * pts[i].y;
+  }
+  // positive signed area = clockwise in Y-down space
+  return a >= 0 ? pts : [...pts].reverse();
+}
 function polyArea(pts) {
   return polygonArea(pts);
 }
@@ -514,7 +525,7 @@ function generateLayout() {
   state.offsetX = offX;
   state.offsetY = offY;
 
-  const pts = room.vertices;
+  const pts = ensureClockwise(room.vertices);
   const minX = Math.min(...pts.map(p => p.x));
   const minY = Math.min(...pts.map(p => p.y));
   const maxX = Math.max(...pts.map(p => p.x));
@@ -588,7 +599,7 @@ function optimizeLayout() {
   const room = state.rooms[state.activeRoom];
   if (!room.vertices.length || room.vertices.length < 3) return;
 
-  const pts = room.vertices;
+  const pts = ensureClockwise(room.vertices);
   const pw = state.orientation === 0 ? PLATE_W : PLATE_H;
   const ph = state.orientation === 0 ? PLATE_H : PLATE_W;
 
