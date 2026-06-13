@@ -268,8 +268,8 @@ canvas.pan:active{cursor:grabbing;}
       <button class="orient-btn active" onclick="setOrientation(0,this)">↔ Längs</button>
       <button class="orient-btn" onclick="setOrientation(90,this)">↕ Quer</button>
     </div>
-    <button class="gen-btn" onclick="generateLayout();closeMobilePanel()">▶ Layout berechnen</button>
-    <button class="gen-btn" style="background:#0f766e;margin-top:6px;" onclick="optimizeLayout();closeMobilePanel()">✦ Optimieren</button>
+    <button class="gen-btn" onclick="generateLayout()">▶ Layout berechnen</button>
+    <button class="gen-btn" style="background:#0f766e;margin-top:6px;" onclick="optimizeLayout()">✦ Optimieren</button>
   </div>
 </div>
 
@@ -574,7 +574,14 @@ function generateLayout() {
 
   updateStückliste();
   render();
-  document.getElementById('list-panel').style.display = 'block';
+  if (window.innerWidth > 640) {
+    document.getElementById('list-panel').style.display = 'block';
+  } else {
+    // On mobile: close any open panel, then open the list panel
+    closeMobilePanel(false);
+    const listBtn = document.querySelector('.mobile-tabs .stab:last-child');
+    showMobilePanel('list', listBtn);
+  }
 }
 
 function optimizeLayout() {
