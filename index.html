@@ -204,8 +204,6 @@ canvas.pan:active{cursor:grabbing;}
     <canvas id="main-canvas"></canvas>
 
     <div class="tool-bar" id="toolbar">
-      <button class="tool-btn active" id="t-draw" onclick="setTool('draw')">✏️ Zeichnen</button>
-      <button class="tool-btn" id="t-move" onclick="setTool('move')">✋ Pan</button>
       <button class="tool-btn" id="t-layout" onclick="generateLayout()">📐 Layout</button>
       <button class="tool-btn" id="t-calib" onclick="startCalib()">📏 Kalib.</button>
     </div>
@@ -371,6 +369,7 @@ let state = {
   dragStart: null,
   // drawing state
   pendingVertex: null,   // {x,y} being dragged before drop
+  editVertex: null,      // { roomIdx, vIdx } while dragging an existing vertex
   wallModal: { resolve: null },
   // background floor plan
   bgImage: null,
@@ -761,14 +760,18 @@ function drawRoom(room, isActive) {
   }
 
   // Vertices
+  const roomIdx = state.rooms.indexOf(room);
   pts.forEach((p, i) => {
     const sp = w2s(p.x, p.y);
+    const isEditing = state.editVertex &&
+                      state.editVertex.roomIdx === roomIdx &&
+                      state.editVertex.vIdx === i;
     ctx.beginPath();
-    ctx.arc(sp.x, sp.y, isActive ? 5 : 3, 0, Math.PI * 2);
-    ctx.fillStyle = isActive ? COLORS.vertex : '#94a3b8';
+    ctx.arc(sp.x, sp.y, isEditing ? 9 : (isActive ? 5 : 3), 0, Math.PI * 2);
+    ctx.fillStyle = isEditing ? '#f97316' : (isActive ? COLORS.vertex : '#94a3b8');
     ctx.fill();
     ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = isEditing ? 2.5 : 1.5;
     ctx.stroke();
   });
 
@@ -938,6 +941,21 @@ function updateStückliste() {
 // ════════════════════════════════════════════════════
 let lastTapTime = 0;
 
+// Returns { roomIdx, vIdx } if cssX/Y is within radius of any vertex, else null
+function hitTestVertex(cssX, cssY, radius) {
+  radius = radius || (window.innerWidth <= 640 ? 22 : 12); // bigger target on mobile
+  for (let ri = 0; ri < state.rooms.length; ri++) {
+    const verts = state.rooms[ri].vertices;
+    for (let vi = 0; vi < verts.length; vi++) {
+      const sp = w2s(verts[vi].x, verts[vi].y);
+      if (Math.hypot(sp.x - cssX, sp.y - cssY) < radius) {
+        return { roomIdx: ri, vIdx: vi };
+      }
+    }
+  }
+  return null;
+}
+
 function handlePointerDown(cssX, cssY) {
   if (state.tool === 'move') {
     state.dragging = true;
@@ -957,7 +975,14 @@ function handlePointerDown(cssX, cssY) {
     render();
     return;
   }
-  // draw mode: add vertex on single click, close on double-click
+  // draw mode: if clicking near an existing vertex, start dragging it
+  const hit = hitTestVertex(cssX, cssY);
+  if (hit) {
+    state.editVertex = hit;
+    return;
+  }
+
+  // add vertex on single click, close on double-click
   const now = Date.now();
   const isDouble = now - lastTapTime < 500;
   lastTapTime = now;
@@ -982,6 +1007,14 @@ function handlePointerDown(cssX, cssY) {
 }
 
 function handlePointerMove(cssX, cssY) {
+  // Vertex drag
+  if (state.editVertex) {
+    const { roomIdx, vIdx } = state.editVertex;
+    state.rooms[roomIdx].vertices[vIdx] = s2w(cssX, cssY);
+    state.layout = null;
+    render();
+    return;
+  }
   if (state.dragging && state.tool === 'move') {
     const dx = (cssX - state.dragStart.x) / state.vpScale;
     const dy = (cssY - state.dragStart.y) / state.vpScale;
@@ -998,6 +1031,10 @@ function handlePointerMove(cssX, cssY) {
 
 function handlePointerUp() {
   state.dragging = false;
+  if (state.editVertex) {
+    state.editVertex = null;
+    render();
+  }
 }
 
 // Mouse
@@ -1041,14 +1078,25 @@ canvas.addEventListener('touchstart', e => {
     touchState.midX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - r.left;
     touchState.midY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - r.top;
   } else if (e.touches.length === 1) {
-    touchState.mode = 'tap';
     const c = canvasToCss(e);
     touchState.startX = c.x; touchState.startY = c.y;
     touchState.lastX  = c.x; touchState.lastY  = c.y;
     touchState.moved  = false;
     if (state.tool === 'move') {
+      touchState.mode = 'pan';
       state.dragging = true;
       state.dragStart = { x: c.x, y: c.y, vpX: state.vpX, vpY: state.vpY };
+    } else if (state.tool === 'draw') {
+      // Check for vertex hit immediately on touchstart for drag support
+      const hit = hitTestVertex(c.x, c.y);
+      if (hit) {
+        touchState.mode = 'editVertex';
+        state.editVertex = hit;
+      } else {
+        touchState.mode = 'tap';
+      }
+    } else {
+      touchState.mode = 'tap';
     }
   }
 }, { passive: false });
@@ -1084,7 +1132,11 @@ canvas.addEventListener('touchmove', e => {
 
 canvas.addEventListener('touchend', e => {
   e.preventDefault();
-  if (e.changedTouches.length === 1 && touchState.mode === 'tap' && !touchState.moved) {
+  if (touchState.mode === 'editVertex') {
+    state.editVertex = null;
+    state.layout = null;
+    render();
+  } else if (e.changedTouches.length === 1 && touchState.mode === 'tap' && !touchState.moved) {
     const c = { x: touchState.startX, y: touchState.startY };
     handlePointerDown(c.x, c.y);
   }
@@ -1136,15 +1188,15 @@ function resetView() {
 function setTool(t) {
   state.tool = t;
   canvas.classList.toggle('pan', t === 'move');
-  ['t-draw','t-move','t-calib','tb-calib'].forEach(id => {
+  ['t-calib','tb-calib','tb-draw','tb-move'].forEach(id => {
     document.getElementById(id)?.classList.remove('active');
   });
-  const map = { draw: 't-draw', move: 't-move', calib: 't-calib' };
+  const map = { draw: 'tb-draw', move: 'tb-move', calib: 't-calib' };
   document.getElementById(map[t])?.classList.add('active');
 
   const hint = document.getElementById('hint');
   if (t === 'draw')
-    hint.textContent = 'Klicken = Eckpunkt · Doppelklick = Schließen';
+    hint.textContent = 'Klicken = Eckpunkt · Doppelklick = Schließen · Punkt anfassen = verschieben';
   else if (t === 'calib')
     hint.textContent = '📍 Ersten Kalibrierungspunkt klicken...';
   else
