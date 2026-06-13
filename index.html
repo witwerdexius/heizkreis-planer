@@ -341,7 +341,8 @@ canvas.pan:active{cursor:grabbing;}
 const PLATE_W    = 600;   // mm (short side)
 const PLATE_H    = 1200;  // mm (long side)
 const PLATE_AREA = (PLATE_W * PLATE_H) / 1e6; // m²
-const PIPE_MARGIN = 50;   // mm — wall clearance for straight pipe segments
+const PIPE_MARGIN  = 50;   // mm — wall clearance for straight pipe segments
+const ENTRY_INSET  = PIPE_MARGIN * 2; // 100mm — extra corridor on entry side for Vorlauf/Rücklauf
 
 const COLORS = {
   room:      '#dbeafe',
@@ -935,6 +936,11 @@ function drawPipeRouting() {
     entryMin = entryCoord < (pipeMin + pipeMax) / 2;
   }
 
+  // Asymmetric insets: entry side needs extra corridor for Vorlauf/Rücklauf
+  // minInset = inset at the "min" pipe-coord wall; maxInset = inset at the "max" pipe-coord wall
+  const minInset = entryMin ? ENTRY_INSET : PIPE_MARGIN;
+  const maxInset = entryMin ? PIPE_MARGIN : ENTRY_INSET;
+
   tracks.forEach((wc, idx) => {
     const segs = getSegs(wc);
     if (segs.length < 2) return;
@@ -944,11 +950,11 @@ function drawPipeRouting() {
     // when entryMin=false: track 0 moves toward min (down=false for even idx)
     const down = (idx % 2 === 0) === entryMin;
 
-    // Draw all room-clipped segments, inset by PIPE_MARGIN from each wall
+    // Draw all room-clipped segments with asymmetric wall insets
     ctx.beginPath();
     for (let p = 0; p + 1 < segs.length; p += 2) {
-      let pA = segs[p] + PIPE_MARGIN, pB = segs[p + 1] - PIPE_MARGIN;
-      if (pB <= pA + cc) continue; // segment too narrow after margin
+      let pA = segs[p] + minInset, pB = segs[p + 1] - maxInset;
+      if (pB <= pA + cc / 2) continue; // segment too narrow after margin
       if (!down) { const tmp = pA; pA = pB; pB = tmp; }
       const s = pipeAlongY ? w2s(wc, pA) : w2s(pA, wc);
       const e = pipeAlongY ? w2s(wc, pB) : w2s(pB, wc);
@@ -958,8 +964,9 @@ function drawPipeRouting() {
     ctx.stroke();
 
     // Inset outer and inner ends (used for U-turn positioning)
-    const outerEnd   = down ? segs[segs.length - 1] - PIPE_MARGIN : segs[0] + PIPE_MARGIN;
-    const trackStart = down ? segs[0] + PIPE_MARGIN : segs[segs.length - 1] - PIPE_MARGIN;
+    // outerEnd = U-turn side endpoint; trackStart = entry side endpoint
+    const outerEnd   = down ? segs[segs.length - 1] - maxInset : segs[0] + minInset;
+    const trackStart = down ? segs[0] + minInset : segs[segs.length - 1] - maxInset;
 
     // Always draw a U-turn / elbow between consecutive tracks.
     // Arc radius = PIPE_MARGIN so the arc just touches (never crosses) the wall.
@@ -1025,40 +1032,67 @@ function drawPipeRouting() {
   const dotR      = Math.max(5, state.vpScale * 12);
 
   if (e0segs.length >= 2 && elsegs.length >= 2) {
-    const pipeBoundary0 = entryMin ? e0segs[0] + PIPE_MARGIN : e0segs[e0segs.length - 1] - PIPE_MARGIN;
-    const pipeBoundary1 = entryMin ? elsegs[0] + PIPE_MARGIN : elsegs[elsegs.length - 1] - PIPE_MARGIN;
+    // Track entry endpoints at ENTRY_INSET from the entry wall
+    const pipeBoundary0 = entryMin ? e0segs[0] + ENTRY_INSET : e0segs[e0segs.length - 1] - ENTRY_INSET;
+    const pipeBoundary1 = entryMin ? elsegs[0] + ENTRY_INSET : elsegs[elsegs.length - 1] - ENTRY_INSET;
     const trackPt0 = pipeAlongY ? w2s(tracks[0], pipeBoundary0) : w2s(pipeBoundary0, tracks[0]);
     const trackPt1 = pipeAlongY ? w2s(lastTrack, pipeBoundary1) : w2s(pipeBoundary1, lastTrack);
 
     if (state.pipeEntry) {
-      // Draw stubs from placed manifold point to both track endpoints
+      // Corridor level: PIPE_MARGIN (50mm) from entry wall — supply/return run here
+      const connBoundary = entryMin
+        ? e0segs[0] + PIPE_MARGIN
+        : e0segs[e0segs.length - 1] - PIPE_MARGIN;
+
       const mpt = w2s(state.pipeEntry.x, state.pipeEntry.y);
       const lw  = Math.max(1.5, state.vpScale * 5);
-
       ctx.lineWidth = lw; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.setLineDash([]);
 
-      // Route each stub orthogonally along the wall (no diagonals):
-      //   Portrait: mpt → (mpt.x_world, boundary_y) → trackPt  (vertical then horizontal)
-      //   Landscape: mpt → (boundary_x, mpt.y_world) → trackPt  (horizontal then vertical)
-      const drawStub = (color, pt, boundary) => {
-        let corner;
-        if (pipeAlongY) {
-          // portrait: intermediate point at manifold-x, boundary-y
-          corner = w2s(state.pipeEntry.x, boundary);
-        } else {
-          // landscape: intermediate point at boundary-x, manifold-y
-          corner = w2s(boundary, state.pipeEntry.y);
-        }
-        ctx.strokeStyle = color;
+      // Supply/Return run in corridor at PIPE_MARGIN from entry wall.
+      // Path: manifold → perpendicular to corridor level → along corridor to track → into track start
+      if (pipeAlongY) {
+        // Portrait: connBoundary is a Y world coord; tracks are X world coords
+        const mAtCorr  = w2s(state.pipeEntry.x, connBoundary);  // manifold to corridor (vertical)
+        const t0AtCorr = w2s(tracks[0],          connBoundary);  // along corridor to first track
+        const t1AtCorr = w2s(lastTrack,           connBoundary);  // along corridor to last track
+
+        ctx.strokeStyle = '#10b981';
         ctx.beginPath();
         ctx.moveTo(mpt.x, mpt.y);
-        ctx.lineTo(corner.x, corner.y);
-        ctx.lineTo(pt.x, pt.y);
+        ctx.lineTo(mAtCorr.x, mAtCorr.y);
+        ctx.lineTo(t0AtCorr.x, t0AtCorr.y);
+        ctx.lineTo(trackPt0.x, trackPt0.y);  // 50mm stub into track
         ctx.stroke();
-      };
 
-      drawStub('#10b981', trackPt0, pipeBoundary0);
-      drawStub('#ef4444', trackPt1, pipeBoundary1);
+        ctx.strokeStyle = '#ef4444';
+        ctx.beginPath();
+        ctx.moveTo(trackPt1.x, trackPt1.y);  // 50mm stub from last track
+        ctx.lineTo(t1AtCorr.x, t1AtCorr.y);
+        ctx.lineTo(mAtCorr.x, mAtCorr.y);
+        ctx.lineTo(mpt.x, mpt.y);
+        ctx.stroke();
+      } else {
+        // Landscape: connBoundary is an X world coord; tracks are Y world coords
+        const mAtCorr  = w2s(connBoundary, state.pipeEntry.y);  // manifold to corridor (horizontal)
+        const t0AtCorr = w2s(connBoundary, tracks[0]);            // along corridor to first track
+        const t1AtCorr = w2s(connBoundary, lastTrack);            // along corridor to last track
+
+        ctx.strokeStyle = '#10b981';
+        ctx.beginPath();
+        ctx.moveTo(mpt.x, mpt.y);
+        ctx.lineTo(mAtCorr.x, mAtCorr.y);
+        ctx.lineTo(t0AtCorr.x, t0AtCorr.y);
+        ctx.lineTo(trackPt0.x, trackPt0.y);
+        ctx.stroke();
+
+        ctx.strokeStyle = '#ef4444';
+        ctx.beginPath();
+        ctx.moveTo(trackPt1.x, trackPt1.y);
+        ctx.lineTo(t1AtCorr.x, t1AtCorr.y);
+        ctx.lineTo(mAtCorr.x, mAtCorr.y);
+        ctx.lineTo(mpt.x, mpt.y);
+        ctx.stroke();
+      }
 
       // Manifold marker: half-green / half-red circle
       const mR = Math.max(7, state.vpScale * 14);
