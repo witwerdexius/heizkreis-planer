@@ -172,11 +172,9 @@ canvas.pan:active{cursor:grabbing;}
         </button>
       </div>
 
-      <div class="section-title">Anschlussseite</div>
-      <div class="orient-btns">
-        <button class="orient-btn pipe-entry-btn active" onclick="setPipeEntry(true,this)">⬆ Oben / Links</button>
-        <button class="orient-btn pipe-entry-btn" onclick="setPipeEntry(false,this)">⬇ Unten / Rechts</button>
-      </div>
+      <div class="section-title">Anschlusspunkt</div>
+      <button class="gen-btn" style="background:#0f766e;margin-bottom:6px;" onclick="setTool('pipeEntry')">📍 Anschluss platzieren</button>
+      <button class="orient-btn" style="width:100%;color:#ef4444;" onclick="clearPipeEntry()" id="btn-clear-entry">✕ Punkt entfernen</button>
 
       <div class="section-title">Startversatz</div>
       <label>Versatz X (mm)</label>
@@ -272,11 +270,8 @@ canvas.pan:active{cursor:grabbing;}
       <button class="orient-btn active" onclick="setOrientation(0,this)">↔ Längs</button>
       <button class="orient-btn" onclick="setOrientation(90,this)">↕ Quer</button>
     </div>
-    <label>Anschlussseite</label>
-    <div class="orient-btns">
-      <button class="orient-btn pipe-entry-btn active" onclick="setPipeEntry(true,this)">⬆ Oben / Links</button>
-      <button class="orient-btn pipe-entry-btn" onclick="setPipeEntry(false,this)">⬇ Unten / Rechts</button>
-    </div>
+    <button class="gen-btn" style="background:#0f766e;margin-bottom:6px;" onclick="setTool('pipeEntry');closeMobilePanel()">📍 Anschluss platzieren</button>
+    <button class="orient-btn" style="width:100%;color:#ef4444;margin-bottom:8px;" onclick="clearPipeEntry()">✕ Anschluss entfernen</button>
     <button class="gen-btn" onclick="generateLayout()">▶ Layout berechnen</button>
     <button class="gen-btn" style="background:#0f766e;margin-top:6px;" onclick="optimizeLayout()">✦ Optimieren</button>
   </div>
@@ -371,7 +366,8 @@ let state = {
   tool: 'draw',          // 'draw' | 'move'
   orientation: 0,        // 0=längs, 90=quer
   plateType: 'maander',
-  pipeEntryAtMin: true,  // true=Anschluss oben/links, false=unten/rechts
+  pipeEntry: null,       // {x,y} world-coords of pipe manifold point (or null = auto)
+  zoomLens: null,        // {x,y,callback} when active
   offsetX: 0,
   offsetY: 0,
   layout: null,          // { placements:[], stats:{} }
@@ -684,6 +680,7 @@ function render() {
   // Draw all rooms
   state.rooms.forEach((room, i) => drawRoom(room, i === state.activeRoom));
 
+  renderZoomLens(W, H);
   drawScale(W, H);
   ctx.restore();
 }
@@ -926,7 +923,17 @@ function drawPipeRouting() {
   ctx.setLineDash([]);
 
   let prevCross = null, prevPipeEnd = null;
-  const entryMin = state.pipeEntryAtMin; // true = entry/exit at min side of pipe axis
+
+  // Determine which side the entry is on
+  let entryMin = state.pipeEntryAtMin !== false; // default: true (min side)
+  if (state.pipeEntry) {
+    // Auto-compute from placed point position
+    const pipeCoords = pts.map(p => pipeAlongY ? p.y : p.x);
+    const pipeMin = Math.min(...pipeCoords);
+    const pipeMax = Math.max(...pipeCoords);
+    const entryCoord = pipeAlongY ? state.pipeEntry.y : state.pipeEntry.x;
+    entryMin = entryCoord < (pipeMin + pipeMax) / 2;
+  }
 
   tracks.forEach((wc, idx) => {
     const segs = getSegs(wc);
@@ -983,27 +990,138 @@ function drawPipeRouting() {
     prevPipeEnd = outerEnd;
   });
 
-  // Entry (Vorlauf) dot — green, always on entryMin side
-  const e0segs = getSegs(tracks[0]);
-  if (e0segs.length >= 2) {
-    const ep0 = entryMin ? e0segs[0] + PIPE_MARGIN : e0segs[e0segs.length - 1] - PIPE_MARGIN;
-    const ep = pipeAlongY ? w2s(tracks[0], ep0) : w2s(ep0, tracks[0]);
-    ctx.beginPath();
-    ctx.arc(ep.x, ep.y, Math.max(5, state.vpScale * 12), 0, Math.PI * 2);
-    ctx.fillStyle = '#10b981'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
-    ctx.fill(); ctx.stroke();
-  }
-  // Exit (Rücklauf) dot — red, also on entryMin side (in/out nebeneinander)
+  // Entry/exit dots and connection stubs
+  const e0segs    = getSegs(tracks[0]);
   const lastTrack = tracks[tracks.length - 1];
   const elsegs    = getSegs(lastTrack);
-  if (elsegs.length >= 2) {
-    const ep1 = entryMin ? elsegs[0] + PIPE_MARGIN : elsegs[elsegs.length - 1] - PIPE_MARGIN;
-    const xp = pipeAlongY ? w2s(lastTrack, ep1) : w2s(ep1, lastTrack);
-    ctx.beginPath();
-    ctx.arc(xp.x, xp.y, Math.max(5, state.vpScale * 12), 0, Math.PI * 2);
-    ctx.fillStyle = '#ef4444'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
-    ctx.fill(); ctx.stroke();
+  const dotR      = Math.max(5, state.vpScale * 12);
+
+  if (e0segs.length >= 2 && elsegs.length >= 2) {
+    const pipeBoundary0 = entryMin ? e0segs[0] + PIPE_MARGIN : e0segs[e0segs.length - 1] - PIPE_MARGIN;
+    const pipeBoundary1 = entryMin ? elsegs[0] + PIPE_MARGIN : elsegs[elsegs.length - 1] - PIPE_MARGIN;
+    const trackPt0 = pipeAlongY ? w2s(tracks[0], pipeBoundary0) : w2s(pipeBoundary0, tracks[0]);
+    const trackPt1 = pipeAlongY ? w2s(lastTrack, pipeBoundary1) : w2s(pipeBoundary1, lastTrack);
+
+    if (state.pipeEntry) {
+      // Draw stubs from placed manifold point to both track endpoints
+      const mpt = w2s(state.pipeEntry.x, state.pipeEntry.y);
+      const lw  = Math.max(1.5, state.vpScale * 5);
+
+      ctx.lineWidth = lw; ctx.lineCap = 'round'; ctx.setLineDash([]);
+
+      ctx.strokeStyle = '#10b981';
+      ctx.beginPath(); ctx.moveTo(mpt.x, mpt.y); ctx.lineTo(trackPt0.x, trackPt0.y); ctx.stroke();
+
+      ctx.strokeStyle = '#ef4444';
+      ctx.beginPath(); ctx.moveTo(mpt.x, mpt.y); ctx.lineTo(trackPt1.x, trackPt1.y); ctx.stroke();
+
+      // Manifold marker: half-green / half-red circle
+      const mR = Math.max(7, state.vpScale * 14);
+      ctx.lineWidth = 2;
+      ctx.fillStyle = '#10b981';
+      ctx.beginPath(); ctx.arc(mpt.x, mpt.y, mR, Math.PI, 0); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath(); ctx.arc(mpt.x, mpt.y, mR, 0, Math.PI); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.arc(mpt.x, mpt.y, mR, 0, Math.PI * 2); ctx.stroke();
+
+      // Small dots at track endpoints
+      ctx.fillStyle = '#10b981'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(trackPt0.x, trackPt0.y, dotR * 0.65, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath(); ctx.arc(trackPt1.x, trackPt1.y, dotR * 0.65, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    } else {
+      // No point placed — just draw entry/exit dots at track ends
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+      ctx.fillStyle = '#10b981';
+      ctx.beginPath(); ctx.arc(trackPt0.x, trackPt0.y, dotR, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath(); ctx.arc(trackPt1.x, trackPt1.y, dotR, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    }
   }
+
+  ctx.restore();
+}
+
+// ════════════════════════════════════════════════════
+// ZOOM LENS
+// ════════════════════════════════════════════════════
+const LENS_ZOOM = 5;
+
+function openZoomLens(wx, wy, callback) {
+  state.zoomLens = { x: wx, y: wy, callback };
+  render();
+}
+
+function renderZoomLens(W, H) {
+  if (!state.zoomLens) return;
+
+  const isMobile   = window.innerWidth <= 640;
+  const LENS_SIZE  = isMobile ? 220 : 185;
+  const lensX      = W - LENS_SIZE - 12;
+  const lensY      = isMobile ? 50 : 50;
+  const cx         = lensX + LENS_SIZE / 2;
+  const cy         = lensY + LENS_SIZE / 2;
+
+  // Save current viewport + pendingVertex
+  const savedVpX     = state.vpX,    savedVpY     = state.vpY;
+  const savedVpScale = state.vpScale, savedPending = state.pendingVertex;
+
+  const zScale = savedVpScale * LENS_ZOOM;
+  const zVpX   = state.zoomLens.x - cx / zScale;
+  const zVpY   = state.zoomLens.y - cy / zScale;
+
+  ctx.save();
+
+  // Shadow + background
+  ctx.shadowColor = 'rgba(0,0,0,.28)';
+  ctx.shadowBlur  = 14;
+  ctx.fillStyle   = '#f8fafc';
+  ctx.fillRect(lensX, lensY, LENS_SIZE, LENS_SIZE);
+  ctx.shadowBlur  = 0;
+
+  // Clip to lens box
+  ctx.beginPath();
+  ctx.rect(lensX, lensY, LENS_SIZE, LENS_SIZE);
+  ctx.clip();
+
+  // Switch to zoomed viewport
+  state.vpX       = zVpX;
+  state.vpY       = zVpY;
+  state.vpScale   = zScale;
+  // Show tentative point at lens center
+  state.pendingVertex = { x: state.zoomLens.x, y: state.zoomLens.y };
+
+  // Render scene (background + rooms — no grid/layout in lens)
+  drawBackground();
+  state.rooms.forEach((room, i) => drawRoom(room, i === state.activeRoom));
+
+  // Restore
+  state.vpX         = savedVpX;
+  state.vpY         = savedVpY;
+  state.vpScale     = savedVpScale;
+  state.pendingVertex = savedPending;
+
+  // Crosshair
+  ctx.strokeStyle = '#ef4444';
+  ctx.lineWidth   = 1.5;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(cx - 16, cy); ctx.lineTo(cx + 16, cy);
+  ctx.moveTo(cx, cy - 16); ctx.lineTo(cx, cy + 16);
+  ctx.stroke();
+
+  // Border
+  ctx.strokeStyle = '#1d4ed8';
+  ctx.lineWidth   = 2;
+  ctx.strokeRect(lensX, lensY, LENS_SIZE, LENS_SIZE);
+
+  // Label
+  ctx.fillStyle    = 'rgba(29,78,216,.9)';
+  ctx.font         = 'bold 10px system-ui';
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText('Klicken zum Bestätigen', cx, lensY + LENS_SIZE - 3);
+  ctx.textBaseline = 'alphabetic';
 
   ctx.restore();
 }
@@ -1109,40 +1227,91 @@ function hitTestVertex(cssX, cssY, radius) {
 }
 
 function handlePointerDown(cssX, cssY) {
+  const W = canvas.width / devicePixelRatio;
+
   if (state.tool === 'move') {
+    state.zoomLens = null;
     state.dragging = true;
     state.dragStart = { x: cssX, y: cssY, vpX: state.vpX, vpY: state.vpY };
     return;
   }
+
+  // ── Zoom lens: if open, check if click is inside lens ──
+  if (state.zoomLens) {
+    const isMobile  = window.innerWidth <= 640;
+    const LENS_SIZE = isMobile ? 220 : 185;
+    const lensX     = W - LENS_SIZE - 12;
+    const lensY     = 50;
+
+    if (cssX >= lensX && cssX <= lensX + LENS_SIZE &&
+        cssY >= lensY && cssY <= lensY + LENS_SIZE) {
+      // Click inside lens → compute precise world coords from zoomed viewport
+      const zScale = state.vpScale * LENS_ZOOM;
+      const cx     = lensX + LENS_SIZE / 2;
+      const cy     = lensY + LENS_SIZE / 2;
+      const zVpX   = state.zoomLens.x - cx / zScale;
+      const zVpY   = state.zoomLens.y - cy / zScale;
+      const wx     = zVpX + cssX / zScale;
+      const wy     = zVpY + cssY / zScale;
+      const cb     = state.zoomLens.callback;
+      state.zoomLens = null;
+      cb(wx, wy);
+    } else {
+      // Click outside lens → move lens to new position
+      const wpt = s2w(cssX, cssY);
+      state.zoomLens.x = wpt.x;
+      state.zoomLens.y = wpt.y;
+      render();
+    }
+    return;
+  }
+
+  // ── Pipe entry placement tool ──
+  if (state.tool === 'pipeEntry') {
+    const wpt = s2w(cssX, cssY);
+    openZoomLens(wpt.x, wpt.y, (wx, wy) => {
+      state.pipeEntry = { x: wx, y: wy };
+      setTool('draw');
+      render();
+    });
+    return;
+  }
+
+  // ── Calibration ──
   if (state.tool === 'calib') {
     const wpt = s2w(cssX, cssY);
     if (!state.calibStart) {
-      state.calibStart = wpt;
-      document.getElementById('hint').textContent = '📍 Zweiten Punkt klicken...';
+      openZoomLens(wpt.x, wpt.y, (wx, wy) => {
+        state.calibStart = { x: wx, y: wy };
+        document.getElementById('hint').textContent = '📍 Zweiten Punkt klicken...';
+        render();
+      });
     } else {
-      state.calibEnd = wpt;
-      state.pendingVertex = null;
-      openCalibModal();
+      openZoomLens(wpt.x, wpt.y, (wx, wy) => {
+        state.calibEnd = { x: wx, y: wy };
+        state.pendingVertex = null;
+        openCalibModal();
+      });
     }
     render();
     return;
   }
-  // draw mode: if clicking near an existing vertex, start dragging it
+
+  // ── Draw mode ──
+  // Vertex drag takes priority over zoom lens
   const hit = hitTestVertex(cssX, cssY);
   if (hit) {
     state.editVertex = hit;
     return;
   }
 
-  // add vertex on single click, close on double-click
+  // Double-click closes polygon (no zoom lens)
   const now = Date.now();
   const isDouble = now - lastTapTime < 500;
   lastTapTime = now;
 
-  const wpt = s2w(cssX, cssY);
-
   if (isDouble) {
-    // Close polygon — pop the vertex that the first click of this double-click added
+    state.zoomLens = null;
     const room = state.rooms[state.activeRoom];
     if (room.vertices.length >= 4) room.vertices.pop();
     if (room.vertices.length >= 3) {
@@ -1152,10 +1321,14 @@ function handlePointerDown(cssX, cssY) {
     return;
   }
 
-  const room = state.rooms[state.activeRoom];
-  room.vertices.push(wpt);
-  state.layout = null;
-  render();
+  // Single click → open zoom lens for precise vertex placement
+  const wpt = s2w(cssX, cssY);
+  openZoomLens(wpt.x, wpt.y, (wx, wy) => {
+    const room = state.rooms[state.activeRoom];
+    room.vertices.push({ x: wx, y: wy });
+    state.layout = null;
+    render();
+  });
 }
 
 function handlePointerMove(cssX, cssY) {
@@ -1339,6 +1512,7 @@ function resetView() {
 // ════════════════════════════════════════════════════
 function setTool(t) {
   state.tool = t;
+  if (t !== 'pipeEntry' && t !== 'calib') state.zoomLens = null;
   canvas.classList.toggle('pan', t === 'move');
   ['t-calib','tb-calib','tb-draw','tb-move'].forEach(id => {
     document.getElementById(id)?.classList.remove('active');
@@ -1351,8 +1525,25 @@ function setTool(t) {
     hint.textContent = 'Klicken = Eckpunkt · Doppelklick = Schließen · Punkt anfassen = verschieben';
   else if (t === 'calib')
     hint.textContent = '📍 Ersten Kalibrierungspunkt klicken...';
+  else if (t === 'pipeEntry')
+    hint.textContent = '📍 Anschlusspunkt auf der Karte klicken...';
   else
     hint.textContent = 'Ziehen = Ansicht verschieben · Mausrad = Zoom';
+}
+
+function setPipeEntry(atMin, btn) {
+  // legacy toggle (fallback when no point placed)
+  document.querySelectorAll('.pipe-entry-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  // auto-determined from pipeEntry point; clear it and use side toggle
+  state.pipeEntry = null;
+  state.pipeEntryAtMin = atMin;
+  render();
+}
+
+function clearPipeEntry() {
+  state.pipeEntry = null;
+  render();
 }
 
 function setOrientation(deg, btn) {
