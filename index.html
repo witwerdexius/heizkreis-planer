@@ -341,7 +341,7 @@ canvas.pan:active{cursor:grabbing;}
 const PLATE_W    = 600;   // mm (short side)
 const PLATE_H    = 1200;  // mm (long side)
 const PLATE_AREA = (PLATE_W * PLATE_H) / 1e6; // m²
-const PIPE_MARGIN = 75;   // mm — wall clearance; must be ≥ cc/2=75mm so U-turn arcs stay inside room
+const PIPE_MARGIN = 50;   // mm — wall clearance for straight pipe segments
 
 const COLORS = {
   room:      '#dbeafe',
@@ -961,55 +961,56 @@ function drawPipeRouting() {
     const outerEnd   = down ? segs[segs.length - 1] - PIPE_MARGIN : segs[0] + PIPE_MARGIN;
     const trackStart = down ? segs[0] + PIPE_MARGIN : segs[segs.length - 1] - PIPE_MARGIN;
 
-    // Always draw a U-turn / elbow between consecutive tracks
+    // Always draw a U-turn / elbow between consecutive tracks.
+    // Arc radius = PIPE_MARGIN so the arc just touches (never crosses) the wall.
+    // Short stubs (cc/2 - PIPE_MARGIN) bridge from the inset track endpoint to the arc start/end.
     if (prevCross !== null && prevPipeEnd !== null) {
       const prevDown = !down;
-      const rWorld   = Math.abs(wc - prevCross) / 2;   // = cc/2
       const midCross = (prevCross + wc) / 2;
-      const rPx      = rWorld * state.vpScale;
+      const rArc     = PIPE_MARGIN;           // arc radius = 50mm → arc tip touches wall
+      const rPx      = rArc * state.vpScale;
 
-      // "Elbow position": the pipe boundary where the arc lives.
-      // Use whichever end is further from the room interior so both tracks can reach it.
+      // Elbow position: further boundary for non-rectangular rooms
       const elbowPos = prevDown
-        ? Math.max(prevPipeEnd, trackStart)   // right/bottom: further out
-        : Math.min(prevPipeEnd, trackStart);  // left/top: further out
+        ? Math.max(prevPipeEnd, trackStart)
+        : Math.min(prevPipeEnd, trackStart);
 
       ctx.lineWidth = Math.max(1.5, state.vpScale * 5);
       ctx.lineCap   = 'round';
       ctx.setLineDash([]);
 
+      const stroke = () => ctx.stroke();
+      const line   = (ax, ay, bx, by) => {
+        const sa = pipeAlongY ? w2s(ax, ay) : w2s(ay, ax);
+        const sb = pipeAlongY ? w2s(bx, by) : w2s(by, bx);
+        if (Math.hypot(sb.x - sa.x, sb.y - sa.y) < 0.5) return;
+        ctx.beginPath(); ctx.moveTo(sa.x, sa.y); ctx.lineTo(sb.x, sb.y); stroke();
+      };
+
       if (pipeAlongY) {
-        // Stub from prev track end to elbow Y level (if different)
-        if (Math.abs(prevPipeEnd - elbowPos) > 1) {
-          const s1 = w2s(prevCross, prevPipeEnd), s2 = w2s(prevCross, elbowPos);
-          ctx.beginPath(); ctx.moveTo(s1.x, s1.y); ctx.lineTo(s2.x, s2.y); ctx.stroke();
-        }
-        // Arc at elbowPos
+        // Portrait: cross=X, pipe=Y, arc center at (midCross, elbowPos)
+        // arcLeft/Right are the x-positions where the arc meets the horizontal stub
+        const arcLeft  = midCross - rArc;
+        const arcRight = midCross + rArc;
+
+        line(prevCross, prevPipeEnd, prevCross, elbowPos);   // vertical elbow-boundary stub
+        line(prevCross, elbowPos, arcLeft, elbowPos);        // horizontal pre-arc stub
         const cs = w2s(midCross, elbowPos);
-        ctx.beginPath();
-        ctx.arc(cs.x, cs.y, rPx, Math.PI, 0, !prevDown);
-        ctx.stroke();
-        // Stub from elbow back to next track start (if different)
-        if (Math.abs(trackStart - elbowPos) > 1) {
-          const s3 = w2s(wc, elbowPos), s4 = w2s(wc, trackStart);
-          ctx.beginPath(); ctx.moveTo(s3.x, s3.y); ctx.lineTo(s4.x, s4.y); ctx.stroke();
-        }
+        ctx.beginPath(); ctx.arc(cs.x, cs.y, rPx, Math.PI, 0, !prevDown); stroke();
+        line(arcRight, elbowPos, wc, elbowPos);              // horizontal post-arc stub
+        line(wc, elbowPos, wc, trackStart);                  // vertical elbow-boundary stub
       } else {
-        // Stub from prev track end to elbow X level (if different)
-        if (Math.abs(prevPipeEnd - elbowPos) > 1) {
-          const s1 = w2s(prevPipeEnd, prevCross), s2 = w2s(elbowPos, prevCross);
-          ctx.beginPath(); ctx.moveTo(s1.x, s1.y); ctx.lineTo(s2.x, s2.y); ctx.stroke();
-        }
-        // Arc at elbowPos
+        // Landscape: cross=Y, pipe=X, arc center at (elbowPos, midCross)
+        // arcTop/Bot are the y-positions where the arc meets the vertical stub
+        const arcTop = midCross - rArc;
+        const arcBot = midCross + rArc;
+
+        line(prevPipeEnd, prevCross, elbowPos, prevCross);   // horizontal elbow-boundary stub
+        line(elbowPos, prevCross, elbowPos, arcTop);         // vertical pre-arc stub
         const cs = w2s(elbowPos, midCross);
-        ctx.beginPath();
-        ctx.arc(cs.x, cs.y, rPx, -Math.PI / 2, Math.PI / 2, !prevDown);
-        ctx.stroke();
-        // Stub from elbow back to next track start (if different)
-        if (Math.abs(trackStart - elbowPos) > 1) {
-          const s3 = w2s(elbowPos, wc), s4 = w2s(trackStart, wc);
-          ctx.beginPath(); ctx.moveTo(s3.x, s3.y); ctx.lineTo(s4.x, s4.y); ctx.stroke();
-        }
+        ctx.beginPath(); ctx.arc(cs.x, cs.y, rPx, -Math.PI / 2, Math.PI / 2, !prevDown); stroke();
+        line(elbowPos, arcBot, elbowPos, wc);                // vertical post-arc stub
+        line(elbowPos, wc, trackStart, wc);                  // horizontal elbow-boundary stub
       }
     }
 
