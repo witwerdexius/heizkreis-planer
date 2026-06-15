@@ -397,7 +397,7 @@ canvas.pan:active{cursor:grabbing;}
 // ════════════════════════════════════════════════════
 // VERSION  (increment on every release commit)
 // ════════════════════════════════════════════════════
-const VERSION = '2.3';
+const VERSION = '2.4';
 
 // ════════════════════════════════════════════════════
 // CONSTANTS
@@ -938,102 +938,180 @@ function getPolygonXAtY(poly, wy) {
 }
 
 // ════════════════════════════════════════════════════
-// SCHNECKE (SPIRAL) PIPE ROUTING
+// SCHNECKE (SPIRAL) PIPE ROUTING — bifilar polygon-offset spiral
+// Supply (green) spirals inward on even rings, return (red) spirals outward
+// on odd rings; connected at center. Both paths follow the actual room shape.
 // ════════════════════════════════════════════════════
 function drawSchneckePipes() {
   const room = state.rooms[state.activeRoom];
   const pts  = ensureClockwise(room.vertices);
-  const xs   = pts.map(p => p.x), ys = pts.map(p => p.y);
+  if (pts.length < 3) return;
+
+  const cc = 150;
+  const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
   const xMin = Math.min(...xs), xMax = Math.max(...xs);
   const yMin = Math.min(...ys), yMax = Math.max(...ys);
 
-  // Entry side: left (xMin) or right (xMax)
-  let entryAtXMin = true;
-  if (state.pipeEntry) entryAtXMin = state.pipeEntry.x < (xMin + xMax) / 2;
-
-  const cc = 150;
-  const inL = entryAtXMin ? ENTRY_INSET : PIPE_MARGIN;
-  const inR = entryAtXMin ? PIPE_MARGIN  : ENTRY_INSET;
-
-  // Build concentric rectangular layers
-  const layers = [];
-  for (let n = 0; ; n++) {
-    const xl = xMin + inL + n * cc;
-    const xr = xMax - inR - n * cc;
-    const yt = yMin + PIPE_MARGIN + n * cc;
-    const yb = yMax - PIPE_MARGIN - n * cc;
-    if (xr - xl < cc / 2 || yb - yt < cc / 2) break;
-    layers.push({ xl, xr, yt, yb });
-  }
-  if (!layers.length) return;
-
-  // Build the spiral polyline.
-  // For entryAtXMin: start at (xl0, yb0), go CCW (↑ left → top → ↓ right → partial bottom → step up on left side)
-  // For entryAtXMax: start at (xr0, yb0), go CW  (↑ right → top → ↓ left → partial bottom → step up on right side)
-  const wpts = [];
-  for (let i = 0; i < layers.length; i++) {
-    const { xl, xr, yt, yb } = layers[i];
-    if (i === 0) wpts.push({ x: entryAtXMin ? xl : xr, y: yb });
-
-    if (entryAtXMin) {
-      wpts.push({ x: xl, y: yt });   // ↑ up left side
-      wpts.push({ x: xr, y: yt });   // → right along top
-      wpts.push({ x: xr, y: yb });   // ↓ down right side
-
-      if (i < layers.length - 1) {
-        const nxt = layers[i + 1];
-        wpts.push({ x: nxt.xl, y: yb });    // ← along bottom to next layer's xl
-        wpts.push({ x: nxt.xl, y: nxt.yb }); // ↑ step up to next layer's yb
-      }
+  // Determine which wall the entry is on (4-sided detection)
+  let entryWallSide = 'left';
+  if (state.pipeEntry) {
+    const cx = (xMin + xMax) / 2, cy = (yMin + yMax) / 2;
+    const dx = state.pipeEntry.x - cx, dy = state.pipeEntry.y - cy;
+    const wx = (xMax - xMin) / 2, wy = (yMax - yMin) / 2;
+    if (Math.abs(dx / wx) >= Math.abs(dy / wy)) {
+      entryWallSide = dx < 0 ? 'left' : 'right';
     } else {
-      wpts.push({ x: xr, y: yt });   // ↑ up right side
-      wpts.push({ x: xl, y: yt });   // ← left along top
-      wpts.push({ x: xl, y: yb });   // ↓ down left side
-
-      if (i < layers.length - 1) {
-        const nxt = layers[i + 1];
-        wpts.push({ x: nxt.xr, y: yb });    // → along bottom to next layer's xr
-        wpts.push({ x: nxt.xr, y: nxt.yb }); // ↑ step up to next layer's yb
-      }
+      entryWallSide = dy < 0 ? 'top' : 'bottom';
     }
   }
 
-  // Draw spiral
-  ctx.save();
-  ctx.strokeStyle = COLORS.pipe;
-  ctx.lineWidth   = Math.max(1.5, state.vpScale * 5);
-  ctx.lineJoin    = 'round';
-  ctx.lineCap     = 'round';
-  ctx.setLineDash([]);
-  ctx.beginPath();
-  const sp0 = w2s(wpts[0].x, wpts[0].y);
-  ctx.moveTo(sp0.x, sp0.y);
-  for (let i = 1; i < wpts.length; i++) {
-    const sp = w2s(wpts[i].x, wpts[i].y);
-    ctx.lineTo(sp.x, sp.y);
+  // ─── Polygon inset ───────────────────────────────
+  // Shrinks a CW (Y-down) polygon inward by d mm using miter joins.
+  // Returns null when the result collapses.
+  function insetPoly(poly, d) {
+    const n = poly.length;
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const A = poly[(i - 1 + n) % n];
+      const B = poly[i];
+      const C = poly[(i + 1) % n];
+      const e1x = B.x - A.x, e1y = B.y - A.y;
+      const e2x = C.x - B.x, e2y = C.y - B.y;
+      const l1 = Math.hypot(e1x, e1y), l2 = Math.hypot(e2x, e2y);
+      if (l1 < 1 || l2 < 1) continue;
+      // Inward normal for CW+Y-down: (-ey, ex)/len
+      const nx1 = -e1y / l1, ny1 = e1x / l1;
+      const nx2 = -e2y / l2, ny2 = e2x / l2;
+      const dot = nx1 * nx2 + ny1 * ny2;
+      const denom = 1 + dot;
+      if (Math.abs(denom) < 0.05) {
+        out.push({ x: B.x + nx1 * d, y: B.y + ny1 * d });
+      } else {
+        const sc = d / denom;
+        out.push({ x: B.x + (nx1 + nx2) * sc, y: B.y + (ny1 + ny2) * sc });
+      }
+    }
+    if (out.length < 3) return null;
+    let area = 0;
+    for (let i = 0; i < out.length; i++) {
+      const j = (i + 1) % out.length;
+      area += out[i].x * out[j].y - out[j].x * out[i].y;
+    }
+    return Math.abs(area) / 2 < cc * cc ? null : out;
   }
-  ctx.stroke();
 
-  // Entry/exit dots and manifold connection
-  const startW = wpts[0];
-  const endW   = wpts[wpts.length - 1];
-  const startS = w2s(startW.x, startW.y);
-  const endS   = w2s(endW.x,   endW.y);
-  const dotR   = Math.max(5, state.vpScale * 12);
+  // Generate rings: ring[k] = room inset by (PIPE_MARGIN + k*cc)
+  const rings = [];
+  for (let k = 0; k < 100; k++) {
+    const r = insetPoly(pts, PIPE_MARGIN + k * cc);
+    if (!r) break;
+    rings.push(r);
+  }
+  if (!rings.length) return;
 
-  // Supply stub: spiral start → entry wall (perpendicular, stays inside room)
-  const entryWallX = entryAtXMin ? xMin : xMax;
-  const wallStrtS  = w2s(entryWallX, startW.y);
+  // Index of the vertex in a ring that is closest to the entry wall
+  // — this is the "transition point" where consecutive rings connect.
+  function tIdx(ring) {
+    let best = 0, bd = Infinity;
+    ring.forEach((p, i) => {
+      let dist;
+      if      (entryWallSide === 'left')   dist = p.x - xMin;
+      else if (entryWallSide === 'right')  dist = xMax - p.x;
+      else if (entryWallSide === 'top')    dist = p.y - yMin;
+      else                                 dist = yMax - p.y;
+      if (dist < bd) { bd = dist; best = i; }
+    });
+    return best;
+  }
+
+  // Build a spiral path through an ordered set of rings.
+  // Each ring is traversed once (CW or CCW), closing back to the
+  // transition vertex, then a short step to the next ring.
+  function buildSpiral(ringArr, cw) {
+    const path = [];
+    for (let s = 0; s < ringArr.length; s++) {
+      const ring = ringArr[s];
+      const n = ring.length;
+      const ti = tIdx(ring);
+      for (let step = 0; step <= n; step++) {
+        const idx = cw ? (ti + step) % n : ((ti - step) % n + n) % n;
+        path.push(ring[idx]);
+      }
+      if (s < ringArr.length - 1) {
+        const nr = ringArr[s + 1];
+        path.push(nr[tIdx(nr)]);
+      }
+    }
+    return path;
+  }
+
+  // Supply: even-indexed rings spiraling inward (CW)
+  // Return: odd-indexed rings reversed so we go from center outward (CCW)
+  const supplyRings = rings.filter((_, i) => i % 2 === 0);
+  const returnRings = rings.filter((_, i) => i % 2 === 1).reverse();
+
+  const supplyPath = buildSpiral(supplyRings, true);
+  const returnPath = buildSpiral(returnRings, false);
+
+  // ─── Draw ────────────────────────────────────────
+  ctx.save();
   const lw = Math.max(1.5, state.vpScale * 5);
-  ctx.lineWidth = lw;
-  ctx.strokeStyle = '#10b981';
-  ctx.beginPath(); ctx.moveTo(startS.x, startS.y); ctx.lineTo(wallStrtS.x, wallStrtS.y); ctx.stroke();
+  ctx.lineWidth = lw; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.setLineDash([]);
 
-  // Dots at start and end
-  ctx.fillStyle = '#10b981'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.arc(startS.x, startS.y, dotR * 0.75, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = '#ef4444';
-  ctx.beginPath(); ctx.arc(endS.x, endS.y, dotR * 0.75, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  function strokeWPath(wpath, color) {
+    if (!wpath.length) return;
+    ctx.strokeStyle = color;
+    ctx.beginPath();
+    const p0 = w2s(wpath[0].x, wpath[0].y);
+    ctx.moveTo(p0.x, p0.y);
+    for (let i = 1; i < wpath.length; i++) {
+      const p = w2s(wpath[i].x, wpath[i].y);
+      ctx.lineTo(p.x, p.y);
+    }
+    ctx.stroke();
+  }
+
+  strokeWPath(supplyPath, '#10b981');
+
+  // Center connection between innermost supply and innermost return
+  if (supplyPath.length && returnPath.length) {
+    const a = supplyPath[supplyPath.length - 1];
+    const b = returnPath[0];
+    ctx.strokeStyle = '#888'; ctx.lineWidth = lw;
+    ctx.beginPath();
+    const sa = w2s(a.x, a.y), sb = w2s(b.x, b.y);
+    ctx.moveTo(sa.x, sa.y); ctx.lineTo(sb.x, sb.y); ctx.stroke();
+  }
+
+  strokeWPath(returnPath, '#ef4444');
+
+  // Stubs from entry/exit points to the wall
+  function wallPt(wpt) {
+    if      (entryWallSide === 'left')   return { x: xMin, y: wpt.y };
+    else if (entryWallSide === 'right')  return { x: xMax, y: wpt.y };
+    else if (entryWallSide === 'top')    return { x: wpt.x, y: yMin };
+    else                                  return { x: wpt.x, y: yMax };
+  }
+  function drawStub(wpt, color) {
+    const wp = wallPt(wpt);
+    ctx.strokeStyle = color; ctx.lineWidth = lw;
+    ctx.beginPath();
+    const a = w2s(wpt.x, wpt.y), b = w2s(wp.x, wp.y);
+    ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  }
+  if (supplyPath.length) drawStub(supplyPath[0], '#10b981');
+  if (returnPath.length) drawStub(returnPath[returnPath.length - 1], '#ef4444');
+
+  // Dots at pipe outlets
+  const dotR = Math.max(5, state.vpScale * 12);
+  const dotPts = [];
+  if (supplyPath.length) dotPts.push([supplyPath[0], '#10b981']);
+  if (returnPath.length) dotPts.push([returnPath[returnPath.length - 1], '#ef4444']);
+  dotPts.forEach(([pt, c]) => {
+    const s = w2s(pt.x, pt.y);
+    ctx.fillStyle = c; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(s.x, s.y, dotR * 0.75, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  });
 
   // Manifold marker at placed entry point
   if (state.pipeEntry) {
