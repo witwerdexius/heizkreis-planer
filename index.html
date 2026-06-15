@@ -397,7 +397,7 @@ canvas.pan:active{cursor:grabbing;}
 // ════════════════════════════════════════════════════
 // VERSION  (increment on every release commit)
 // ════════════════════════════════════════════════════
-const VERSION = '2.7';
+const VERSION = '2.8';
 
 // ════════════════════════════════════════════════════
 // CONSTANTS
@@ -961,39 +961,47 @@ function drawSchneckePipes() {
     }
   }
 
-  // ─── Polygon inset ───────────────────────────────
-  // Shrinks a CW (Y-down) polygon inward by d mm using miter joins.
-  // Returns null when the result collapses.
+  // ─── Polygon inset via Sutherland-Hodgman clipping ──
+  // Clips the polygon against each of its own edges offset inward by d.
+  // Handles L-shapes and all non-convex rooms correctly — no miter blow-up.
   function insetPoly(poly, d) {
     const n = poly.length;
-    const out = [];
+    let result = poly.map(p => ({ x: p.x, y: p.y }));
+
     for (let i = 0; i < n; i++) {
-      const A = poly[(i - 1 + n) % n];
-      const B = poly[i];
-      const C = poly[(i + 1) % n];
-      const e1x = B.x - A.x, e1y = B.y - A.y;
-      const e2x = C.x - B.x, e2y = C.y - B.y;
-      const l1 = Math.hypot(e1x, e1y), l2 = Math.hypot(e2x, e2y);
-      if (l1 < 1 || l2 < 1) continue;
-      // Inward normal for CW+Y-down: (-ey, ex)/len
-      const nx1 = -e1y / l1, ny1 = e1x / l1;
-      const nx2 = -e2y / l2, ny2 = e2x / l2;
-      const dot = nx1 * nx2 + ny1 * ny2;
-      const denom = 1 + dot;
-      if (Math.abs(denom) < 0.05) {
-        out.push({ x: B.x + nx1 * d, y: B.y + ny1 * d });
-      } else {
-        const sc = d / denom;
-        out.push({ x: B.x + (nx1 + nx2) * sc, y: B.y + (ny1 + ny2) * sc });
+      if (result.length < 3) return null;
+      const A = poly[i], B = poly[(i + 1) % n];
+      const ex = B.x - A.x, ey = B.y - A.y;
+      const l = Math.hypot(ex, ey);
+      if (l < 1) continue;
+      // Inward normal for CW+Y-down: (-ey, ex)/l
+      const nx = -ey / l, ny = ex / l;
+      // Point on the offset edge
+      const Px = A.x + nx * d, Py = A.y + ny * d;
+
+      // Clip result against this half-plane (inside = dot >= 0)
+      const clipped = [];
+      const m = result.length;
+      for (let j = 0; j < m; j++) {
+        const V = result[j], W = result[(j + 1) % m];
+        const dV = (V.x - Px) * nx + (V.y - Py) * ny;
+        const dW = (W.x - Px) * nx + (W.y - Py) * ny;
+        if (dV >= -0.1) clipped.push(V);
+        if ((dV < -0.1 && dW > 0.1) || (dV > 0.1 && dW < -0.1)) {
+          const t = dV / (dV - dW);
+          clipped.push({ x: V.x + t * (W.x - V.x), y: V.y + t * (W.y - V.y) });
+        }
       }
+      result = clipped;
     }
-    if (out.length < 3) return null;
+
+    if (result.length < 3) return null;
     let area = 0;
-    for (let i = 0; i < out.length; i++) {
-      const j = (i + 1) % out.length;
-      area += out[i].x * out[j].y - out[j].x * out[i].y;
+    for (let i = 0; i < result.length; i++) {
+      const j = (i + 1) % result.length;
+      area += result[i].x * result[j].y - result[j].x * result[i].y;
     }
-    return Math.abs(area) / 2 < cc * cc ? null : out;
+    return Math.abs(area) / 2 < cc * cc ? null : result;
   }
 
   // Generate rings: ring[k] = room inset by (PIPE_MARGIN + k*cc)
