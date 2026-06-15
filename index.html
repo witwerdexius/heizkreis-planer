@@ -1132,12 +1132,13 @@ function drawSchneckePipes() {
 // orientation=0 (portrait): tracks run in Y direction, spaced along X.
 // orientation=1 (landscape): tracks run in X direction, spaced along Y.
 function drawPipeRouting() {
-  if (!state.layout || !state.layout.placements.length) return;
   const room = state.rooms[state.activeRoom];
   if (room.vertices.length < 3) return;
 
-  // Dispatch to Schnecke if selected
+  // Schnecke draws directly from room shape — no layout needed
   if (state.plateType === 'schnecke') { drawSchneckePipes(); return; }
+
+  if (!state.layout || !state.layout.placements.length) return;
 
   const pts = ensureClockwise(room.vertices);
   const pw  = state.orientation === 0 ? PLATE_W : PLATE_H; // plate x-size
