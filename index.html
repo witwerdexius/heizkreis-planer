@@ -397,7 +397,7 @@ canvas.pan:active{cursor:grabbing;}
 // ════════════════════════════════════════════════════
 // VERSION  (increment on every release commit)
 // ════════════════════════════════════════════════════
-const VERSION = '2.10';
+const VERSION = '2.11';
 
 // ════════════════════════════════════════════════════
 // CONSTANTS
@@ -1047,17 +1047,53 @@ function drawSchneckePipes() {
     ctx.stroke();
   }
 
-  // Clip spiral drawing to room polygon so lines outside the room are hidden
-  ctx.save();
-  ctx.beginPath();
-  { const ps = w2s(pts[0].x, pts[0].y); ctx.moveTo(ps.x, ps.y); }
-  for (let i = 1; i < pts.length; i++) {
-    const ps = w2s(pts[i].x, pts[i].y); ctx.lineTo(ps.x, ps.y);
+  // Ray-cast point-in-polygon test against the actual room polygon
+  function ptInPoly(pt) {
+    const verts = room.vertices;
+    const n = verts.length;
+    let inside = false;
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+      const xi = verts[i].x, yi = verts[i].y;
+      const xj = verts[j].x, yj = verts[j].y;
+      if (((yi > pt.y) !== (yj > pt.y)) &&
+          (pt.x < (xj - xi) * (pt.y - yi) / (yj - yi) + xi))
+        inside = !inside;
+    }
+    return inside;
   }
-  ctx.closePath();
-  ctx.clip();
 
-  strokeWPath(supplyPath, '#10b981');
+  // Draw spiral path clipped to room: segments whose midpoint lies outside
+  // the room polygon are skipped (pen lifts), avoiding lines in non-floor areas.
+  function strokeWPathClipped(wpath, color) {
+    if (wpath.length < 2) return;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lw;
+    let penDown = false;
+    ctx.beginPath();
+    for (let i = 0; i < wpath.length; i++) {
+      const wp = wpath[i];
+      const sp = w2s(wp.x, wp.y);
+      if (i === 0) {
+        if (ptInPoly(wp)) { ctx.moveTo(sp.x, sp.y); penDown = true; }
+        continue;
+      }
+      const prev = wpath[i - 1];
+      const mid  = { x: (prev.x + wp.x) / 2, y: (prev.y + wp.y) / 2 };
+      if (ptInPoly(mid)) {
+        if (!penDown) {
+          const ps = w2s(prev.x, prev.y);
+          ctx.moveTo(ps.x, ps.y);
+          penDown = true;
+        }
+        ctx.lineTo(sp.x, sp.y);
+      } else {
+        penDown = false;
+      }
+    }
+    ctx.stroke();
+  }
+
+  strokeWPathClipped(supplyPath, '#10b981');
 
   // Center connection between innermost supply and innermost return
   if (supplyPath.length && returnPath.length) {
@@ -1069,9 +1105,7 @@ function drawSchneckePipes() {
     ctx.moveTo(sa.x, sa.y); ctx.lineTo(sb.x, sb.y); ctx.stroke();
   }
 
-  strokeWPath(returnPath, '#ef4444');
-
-  ctx.restore(); // remove clip for stubs / markers
+  strokeWPathClipped(returnPath, '#ef4444');
 
   // Stubs from entry/exit points to the wall
   function wallPt(wpt) {
