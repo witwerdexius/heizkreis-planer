@@ -397,7 +397,7 @@ canvas.pan:active{cursor:grabbing;}
 // ════════════════════════════════════════════════════
 // VERSION  (increment on every release commit)
 // ════════════════════════════════════════════════════
-const VERSION = '2.9';
+const VERSION = '2.10';
 
 // ════════════════════════════════════════════════════
 // CONSTANTS
@@ -1047,6 +1047,16 @@ function drawSchneckePipes() {
     ctx.stroke();
   }
 
+  // Clip spiral drawing to room polygon so lines outside the room are hidden
+  ctx.save();
+  ctx.beginPath();
+  { const ps = w2s(pts[0].x, pts[0].y); ctx.moveTo(ps.x, ps.y); }
+  for (let i = 1; i < pts.length; i++) {
+    const ps = w2s(pts[i].x, pts[i].y); ctx.lineTo(ps.x, ps.y);
+  }
+  ctx.closePath();
+  ctx.clip();
+
   strokeWPath(supplyPath, '#10b981');
 
   // Center connection between innermost supply and innermost return
@@ -1060,6 +1070,8 @@ function drawSchneckePipes() {
   }
 
   strokeWPath(returnPath, '#ef4444');
+
+  ctx.restore(); // remove clip for stubs / markers
 
   // Stubs from entry/exit points to the wall
   function wallPt(wpt) {
