@@ -879,15 +879,11 @@ function drawLayout() {
     ctx.fill();
     ctx.stroke();
 
-    // Schnecke: per-plate spiral when zoomed in
-    if (state.plateType !== 'maander' && state.vpScale > 0.15) {
-      drawSchneckePattern(p);
-    }
     ctx.restore();
   });
 
-  // Mäander: room-level continuous pipe routing
-  if (state.plateType === 'maander' && state.vpScale > 0.05) {
+  // Room-level pipe routing for all plate types
+  if (state.vpScale > 0.05) {
     drawPipeRouting();
   }
 }
