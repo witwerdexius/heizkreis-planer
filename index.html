@@ -1024,22 +1024,28 @@ function drawSchneckePipes() {
     return best;
   }
 
-  // Build a spiral path through an ordered set of rings.
-  // Each ring is traversed once (CW or CCW), closing back to the
-  // transition vertex, then a short step to the next ring.
+  // Build an open spiral path through an ordered set of rings.
+  // CW:  start at ti, traverse n-1 sides (open C-shape), step to next ring's ti.
+  // CCW: start at (ti-1) so that after n-1 steps the path ENDS at ti
+  //      (= entry-wall vertex), keeping supply/return exits on the same wall.
   function buildSpiral(ringArr, cw) {
     const path = [];
     for (let s = 0; s < ringArr.length; s++) {
       const ring = ringArr[s];
       const n = ring.length;
       const ti = tIdx(ring);
-      for (let step = 0; step <= n; step++) {
-        const idx = cw ? (ti + step) % n : ((ti - step) % n + n) % n;
+      const startIdx = cw ? ti : (ti - 1 + n) % n;
+      for (let step = 0; step < n; step++) {
+        const idx = cw
+          ? (startIdx + step) % n
+          : ((startIdx - step) % n + n) % n;
         path.push(ring[idx]);
       }
       if (s < ringArr.length - 1) {
         const nr = ringArr[s + 1];
-        path.push(nr[tIdx(nr)]);
+        const nti = tIdx(nr);
+        const nStart = cw ? nti : (nti - 1 + nr.length) % nr.length;
+        path.push(nr[nStart]);
       }
     }
     return path;
