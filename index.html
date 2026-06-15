@@ -397,7 +397,7 @@ canvas.pan:active{cursor:grabbing;}
 // ════════════════════════════════════════════════════
 // VERSION  (increment on every release commit)
 // ════════════════════════════════════════════════════
-const VERSION = '2.11';
+const VERSION = '2.12';
 
 // ════════════════════════════════════════════════════
 // CONSTANTS
@@ -960,22 +960,73 @@ function drawSchneckePipes() {
     }
   }
 
-  // Generate rectangular rings from bounding box: ring k = inset by (PIPE_MARGIN + k*cc).
-  // Using the bounding box (rather than polygon inset) is stable for all room shapes,
-  // including L-shaped and other non-convex rooms.
+  // Ray-cast point-in-polygon check (used for ring validity below)
+  function ptInPoly(pt, poly) {
+    const n = poly.length;
+    let inside = false;
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+      const xi = poly[i].x, yi = poly[i].y;
+      const xj = poly[j].x, yj = poly[j].y;
+      if (((yi > pt.y) !== (yj > pt.y)) &&
+          (pt.x < (xj - xi) * (pt.y - yi) / (yj - yi) + xi))
+        inside = !inside;
+    }
+    return inside;
+  }
+
+  // Miter-based polygon inset.
+  // For each vertex the offset is the bisector of the two adjacent inward normals,
+  // scaled so that each edge moves exactly d mm inward.
+  // Returns null when the ring collapses (any new vertex escapes the original polygon
+  // or total area falls below one cell).
+  function insetPoly(poly, d) {
+    const n = poly.length;
+    const result = [];
+    for (let i = 0; i < n; i++) {
+      const A = poly[(i - 1 + n) % n];
+      const B = poly[i];
+      const C = poly[(i + 1) % n];
+      const e1x = B.x - A.x, e1y = B.y - A.y;
+      const l1  = Math.hypot(e1x, e1y);
+      const e2x = C.x - B.x, e2y = C.y - B.y;
+      const l2  = Math.hypot(e2x, e2y);
+      if (l1 < 0.001 || l2 < 0.001) continue;
+      // Inward normals (CW polygon, Y-down): n = (-ey/l, ex/l)
+      const n1x = -e1y / l1, n1y = e1x / l1;
+      const n2x = -e2y / l2, n2y = e2x / l2;
+      const dot   = n1x * n2x + n1y * n2y;
+      const denom = 1 + dot;
+      let mx, my;
+      if (Math.abs(denom) < 0.01) {
+        mx = n1x; my = n1y; // parallel edges — use plain normal
+      } else {
+        mx = (n1x + n2x) / denom;
+        my = (n1y + n2y) / denom;
+      }
+      result.push({ x: B.x + mx * d, y: B.y + my * d });
+    }
+    if (result.length < 3) return null;
+    // Reject ring if any vertex escaped the original polygon
+    // (happens when d exceeds the local inscribed radius, e.g. notch collapses)
+    for (const v of result) {
+      if (!ptInPoly(v, poly)) return null;
+    }
+    // Reject if area is too small (< one pipe-spacing cell)
+    let area = 0;
+    for (let i = 0; i < result.length; i++) {
+      const j = (i + 1) % result.length;
+      area += result[i].x * result[j].y - result[j].x * result[i].y;
+    }
+    if (Math.abs(area) / 2 < cc * cc) return null;
+    return result;
+  }
+
+  // Generate rings following the actual room shape via miter inset
   const rings = [];
-  for (let k = 0; k < 100; k++) {
-    const d  = PIPE_MARGIN + k * cc;
-    const xl = xMin + d, xr = xMax - d;
-    const yt = yMin + d, yb = yMax - d;
-    if (xr - xl < cc / 2 || yb - yt < cc / 2) break;
-    // CW rectangle in Y-down: TL → TR → BR → BL
-    rings.push([
-      { x: xl, y: yt },
-      { x: xr, y: yt },
-      { x: xr, y: yb },
-      { x: xl, y: yb },
-    ]);
+  for (let k = 0; k < 200; k++) {
+    const r = insetPoly(pts, PIPE_MARGIN + k * cc);
+    if (!r) break;
+    rings.push(r);
   }
   if (!rings.length) return;
 
@@ -1047,53 +1098,7 @@ function drawSchneckePipes() {
     ctx.stroke();
   }
 
-  // Ray-cast point-in-polygon test against the actual room polygon
-  function ptInPoly(pt) {
-    const verts = room.vertices;
-    const n = verts.length;
-    let inside = false;
-    for (let i = 0, j = n - 1; i < n; j = i++) {
-      const xi = verts[i].x, yi = verts[i].y;
-      const xj = verts[j].x, yj = verts[j].y;
-      if (((yi > pt.y) !== (yj > pt.y)) &&
-          (pt.x < (xj - xi) * (pt.y - yi) / (yj - yi) + xi))
-        inside = !inside;
-    }
-    return inside;
-  }
-
-  // Draw spiral path clipped to room: segments whose midpoint lies outside
-  // the room polygon are skipped (pen lifts), avoiding lines in non-floor areas.
-  function strokeWPathClipped(wpath, color) {
-    if (wpath.length < 2) return;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = lw;
-    let penDown = false;
-    ctx.beginPath();
-    for (let i = 0; i < wpath.length; i++) {
-      const wp = wpath[i];
-      const sp = w2s(wp.x, wp.y);
-      if (i === 0) {
-        if (ptInPoly(wp)) { ctx.moveTo(sp.x, sp.y); penDown = true; }
-        continue;
-      }
-      const prev = wpath[i - 1];
-      const mid  = { x: (prev.x + wp.x) / 2, y: (prev.y + wp.y) / 2 };
-      if (ptInPoly(mid)) {
-        if (!penDown) {
-          const ps = w2s(prev.x, prev.y);
-          ctx.moveTo(ps.x, ps.y);
-          penDown = true;
-        }
-        ctx.lineTo(sp.x, sp.y);
-      } else {
-        penDown = false;
-      }
-    }
-    ctx.stroke();
-  }
-
-  strokeWPathClipped(supplyPath, '#10b981');
+  strokeWPath(supplyPath, '#10b981');
 
   // Center connection between innermost supply and innermost return
   if (supplyPath.length && returnPath.length) {
@@ -1105,7 +1110,7 @@ function drawSchneckePipes() {
     ctx.moveTo(sa.x, sa.y); ctx.lineTo(sb.x, sb.y); ctx.stroke();
   }
 
-  strokeWPathClipped(returnPath, '#ef4444');
+  strokeWPath(returnPath, '#ef4444');
 
   // Stubs from entry/exit points to the wall
   function wallPt(wpt) {
