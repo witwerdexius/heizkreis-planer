@@ -397,7 +397,7 @@ canvas.pan:active{cursor:grabbing;}
 // ════════════════════════════════════════════════════
 // VERSION  (increment on every release commit)
 // ════════════════════════════════════════════════════
-const VERSION = '2.8';
+const VERSION = '2.9';
 
 // ════════════════════════════════════════════════════
 // CONSTANTS
@@ -739,6 +739,9 @@ function render() {
   // Draw layout
   if (state.layout) drawLayout();
 
+  // Pipe routing — always called; dispatches to schnecke/mäander internally
+  if (state.vpScale > 0.05) drawPipeRouting();
+
   // Draw all rooms
   state.rooms.forEach((room, i) => drawRoom(room, i === state.activeRoom));
 
@@ -882,10 +885,6 @@ function drawLayout() {
     ctx.restore();
   });
 
-  // Room-level pipe routing for all plate types
-  if (state.vpScale > 0.05) {
-    drawPipeRouting();
-  }
 }
 
 // Schnecke per-plate pattern (concentric rectangles)
@@ -961,55 +960,22 @@ function drawSchneckePipes() {
     }
   }
 
-  // ─── Polygon inset via Sutherland-Hodgman clipping ──
-  // Clips the polygon against each of its own edges offset inward by d.
-  // Handles L-shapes and all non-convex rooms correctly — no miter blow-up.
-  function insetPoly(poly, d) {
-    const n = poly.length;
-    let result = poly.map(p => ({ x: p.x, y: p.y }));
-
-    for (let i = 0; i < n; i++) {
-      if (result.length < 3) return null;
-      const A = poly[i], B = poly[(i + 1) % n];
-      const ex = B.x - A.x, ey = B.y - A.y;
-      const l = Math.hypot(ex, ey);
-      if (l < 1) continue;
-      // Inward normal for CW+Y-down: (-ey, ex)/l
-      const nx = -ey / l, ny = ex / l;
-      // Point on the offset edge
-      const Px = A.x + nx * d, Py = A.y + ny * d;
-
-      // Clip result against this half-plane (inside = dot >= 0)
-      const clipped = [];
-      const m = result.length;
-      for (let j = 0; j < m; j++) {
-        const V = result[j], W = result[(j + 1) % m];
-        const dV = (V.x - Px) * nx + (V.y - Py) * ny;
-        const dW = (W.x - Px) * nx + (W.y - Py) * ny;
-        if (dV >= -0.1) clipped.push(V);
-        if ((dV < -0.1 && dW > 0.1) || (dV > 0.1 && dW < -0.1)) {
-          const t = dV / (dV - dW);
-          clipped.push({ x: V.x + t * (W.x - V.x), y: V.y + t * (W.y - V.y) });
-        }
-      }
-      result = clipped;
-    }
-
-    if (result.length < 3) return null;
-    let area = 0;
-    for (let i = 0; i < result.length; i++) {
-      const j = (i + 1) % result.length;
-      area += result[i].x * result[j].y - result[j].x * result[i].y;
-    }
-    return Math.abs(area) / 2 < cc * cc ? null : result;
-  }
-
-  // Generate rings: ring[k] = room inset by (PIPE_MARGIN + k*cc)
+  // Generate rectangular rings from bounding box: ring k = inset by (PIPE_MARGIN + k*cc).
+  // Using the bounding box (rather than polygon inset) is stable for all room shapes,
+  // including L-shaped and other non-convex rooms.
   const rings = [];
   for (let k = 0; k < 100; k++) {
-    const r = insetPoly(pts, PIPE_MARGIN + k * cc);
-    if (!r) break;
-    rings.push(r);
+    const d  = PIPE_MARGIN + k * cc;
+    const xl = xMin + d, xr = xMax - d;
+    const yt = yMin + d, yb = yMax - d;
+    if (xr - xl < cc / 2 || yb - yt < cc / 2) break;
+    // CW rectangle in Y-down: TL → TR → BR → BL
+    rings.push([
+      { x: xl, y: yt },
+      { x: xr, y: yt },
+      { x: xr, y: yb },
+      { x: xl, y: yb },
+    ]);
   }
   if (!rings.length) return;
 
