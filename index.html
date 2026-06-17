@@ -130,6 +130,11 @@ canvas.pan:active{cursor:grabbing;}
 .btn-pri{background:#1d4ed8;color:#fff;}
 .btn-sec{background:#f1f5f9;color:#475569;}
 .btn:hover{opacity:.85;}
+
+/* ── Manual mode ── */
+.manual-btn{flex:1;padding:7px 4px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;cursor:pointer;font-size:.78rem;text-align:center;font-weight:500;}
+.manual-btn:hover{background:#f8fafc;}
+.manual-btn.active{background:#0f766e;color:#fff;border-color:#0f766e;}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
@@ -206,6 +211,22 @@ canvas.pan:active{cursor:grabbing;}
       <div class="section-title">Anschlusspunkt</div>
       <button class="gen-btn" style="background:#0f766e;margin-bottom:6px;" onclick="setTool('pipeEntry')">📍 Anschluss platzieren</button>
       <button class="orient-btn" style="width:100%;color:#ef4444;" onclick="clearPipeEntry()" id="btn-clear-entry">✕ Punkt entfernen</button>
+
+      <div class="section-title" style="margin-top:12px;">Modus</div>
+      <div style="display:flex;gap:6px;margin-bottom:10px;">
+        <button class="manual-btn active" id="btn-auto-mode" onclick="setManualMode(false)">⚙ Auto</button>
+        <button class="manual-btn" id="btn-manual-mode" onclick="setManualMode(true)">✋ Manuell</button>
+      </div>
+      <div id="manual-controls" class="hidden">
+        <button class="gen-btn" style="background:#0f766e;margin-bottom:6px;" onclick="manualAddPlate()">➕ Platte hinzufügen</button>
+        <div style="display:flex;gap:6px;margin-bottom:6px;">
+          <button class="orient-btn" style="flex:1;" onclick="manualRotatePlate()">↻ Drehen</button>
+          <button class="orient-btn" style="flex:1;color:#059669;font-weight:600;" onclick="manualConfirmPlate()">✓ Bestätigen</button>
+        </div>
+        <button class="orient-btn" style="width:100%;color:#ef4444;margin-bottom:6px;" onclick="manualDeleteSelected()">🗑 Entfernen</button>
+        <button class="orient-btn" style="width:100%;margin-bottom:6px;" onclick="manualClearAll()">✕ Alle löschen</button>
+        <div id="manual-status" style="font-size:.75rem;color:#64748b;text-align:center;padding:4px 0;"></div>
+      </div>
 
       <div class="section-title">Startversatz</div>
       <label>Versatz X (mm)</label>
@@ -347,6 +368,22 @@ canvas.pan:active{cursor:grabbing;}
     </div>
     <button class="gen-btn" style="background:#0f766e;margin-bottom:6px;" onclick="setTool('pipeEntry');closeMobilePanel()">📍 Anschluss platzieren</button>
     <button class="orient-btn" style="width:100%;color:#ef4444;margin-bottom:8px;" onclick="clearPipeEntry()">✕ Anschluss entfernen</button>
+
+    <label style="margin-top:4px;">Modus</label>
+    <div style="display:flex;gap:6px;margin-bottom:8px;">
+      <button class="manual-btn active" id="m-btn-auto-mode" onclick="setManualMode(false)">⚙ Auto</button>
+      <button class="manual-btn" id="m-btn-manual-mode" onclick="setManualMode(true)">✋ Manuell</button>
+    </div>
+    <div id="m-manual-controls" class="hidden" style="margin-bottom:8px;">
+      <button class="gen-btn" style="background:#0f766e;margin-bottom:6px;" onclick="manualAddPlate();closeMobilePanel()">➕ Platte hinzufügen</button>
+      <div style="display:flex;gap:6px;margin-bottom:6px;">
+        <button class="orient-btn" style="flex:1;" onclick="manualRotatePlate()">↻ Drehen</button>
+        <button class="orient-btn" style="flex:1;color:#059669;font-weight:600;" onclick="manualConfirmPlate()">✓ OK</button>
+      </div>
+      <button class="orient-btn" style="width:100%;color:#ef4444;margin-bottom:6px;" onclick="manualDeleteSelected()">🗑 Entfernen</button>
+      <div id="m-manual-status" style="font-size:.75rem;color:#64748b;text-align:center;padding:4px 0;"></div>
+    </div>
+
     <button class="gen-btn" onclick="generateLayout()">▶ Layout berechnen</button>
     <button class="gen-btn" style="background:#0f766e;margin-top:6px;" onclick="optimizeLayout()">✦ Optimieren</button>
   </div>
@@ -397,7 +434,7 @@ canvas.pan:active{cursor:grabbing;}
 // ════════════════════════════════════════════════════
 // VERSION  (increment on every release commit)
 // ════════════════════════════════════════════════════
-const VERSION = '2.12';
+const VERSION = '2.13';
 
 // ════════════════════════════════════════════════════
 // CONSTANTS
@@ -454,6 +491,16 @@ let state = {
   // calibration
   calibStart: null,
   calibEnd: null,
+  // manual plate placement
+  manual: {
+    active: false,
+    plates: [],       // [{x,y,rot,type}]  confirmed plates
+    ghost: null,      // {x,y,rot,type}    plate being positioned
+    selected: -1,     // index into plates[] or -1
+    dragOffset: null, // {dx,dy} offset from plate origin while dragging
+    ghostDragging: false,
+    movingIdx: -1,
+  },
 };
 
 // ════════════════════════════════════════════════════
@@ -736,8 +783,11 @@ function render() {
   drawBackground();
   drawGrid(W, H);
 
-  // Draw layout
-  if (state.layout) drawLayout();
+  // Draw layout (auto mode)
+  if (!state.manual.active && state.layout) drawLayout();
+
+  // Manual plate placement
+  drawManualPlates();
 
   // Pipe routing — always called; dispatches to schnecke/mäander internally
   if (state.vpScale > 0.05) drawPipeRouting();
@@ -1360,6 +1410,301 @@ function drawPipeRouting() {
 }
 
 // ════════════════════════════════════════════════════
+// MANUAL PLATE PLACEMENT
+// ════════════════════════════════════════════════════
+const SNAP_DIST = 60; // mm – magnetic snap threshold
+
+function plateDims(rot) {
+  return (rot % 2 === 0) ? { w: PLATE_W, h: PLATE_H } : { w: PLATE_H, h: PLATE_W };
+}
+
+function plateAABB(plate) {
+  const { w, h } = plateDims(plate.rot);
+  return { x: plate.x, y: plate.y, w, h };
+}
+
+// Returns {x, y}: ghost position after snapping to nearest placed plate edge
+function applySnap(ghost, plates) {
+  if (!plates.length) return { x: ghost.x, y: ghost.y };
+  const { w: gw, h: gh } = plateDims(ghost.rot);
+  let bestX = ghost.x, bestDX = SNAP_DIST + 1;
+  let bestY = ghost.y, bestDY = SNAP_DIST + 1;
+
+  for (const p of plates) {
+    const { w: pw, h: ph } = plateDims(p.rot);
+    // X-axis: snap ghost's left→p's right, or ghost's right→p's left
+    let d;
+    d = Math.abs(ghost.x - (p.x + pw));
+    if (d < bestDX) { bestDX = d; bestX = p.x + pw; }
+    d = Math.abs((ghost.x + gw) - p.x);
+    if (d < bestDX) { bestDX = d; bestX = p.x - gw; }
+    // Y-axis: snap ghost's top→p's bottom, or ghost's bottom→p's top
+    d = Math.abs(ghost.y - (p.y + ph));
+    if (d < bestDY) { bestDY = d; bestY = p.y + ph; }
+    d = Math.abs((ghost.y + gh) - p.y);
+    if (d < bestDY) { bestDY = d; bestY = p.y - gh; }
+  }
+  return {
+    x: bestDX <= SNAP_DIST ? bestX : ghost.x,
+    y: bestDY <= SNAP_DIST ? bestY : ghost.y,
+  };
+}
+
+function rectsOverlap(a, b) {
+  // strict overlap (not touching)
+  return a.x + 1 < b.x + b.w && a.x + a.w - 1 > b.x &&
+         a.y + 1 < b.y + b.h && a.y + a.h - 1 > b.y;
+}
+
+// Returns true if ghost touches ≥1 placed plate with ≥150mm edge overlap
+function hasValidContact(ghost, plates) {
+  if (!plates.length) return true; // first plate: no requirement
+  const { w: gw, h: gh } = plateDims(ghost.rot);
+  const MIN = 150;
+  for (const p of plates) {
+    const { w: pw, h: ph } = plateDims(p.rot);
+    // Touch left/right?
+    if (Math.abs(ghost.x + gw - p.x) < 1 || Math.abs(ghost.x - (p.x + pw)) < 1) {
+      const ov = Math.min(ghost.y + gh, p.y + ph) - Math.max(ghost.y, p.y);
+      if (ov >= MIN) return true;
+    }
+    // Touch top/bottom?
+    if (Math.abs(ghost.y + gh - p.y) < 1 || Math.abs(ghost.y - (p.y + ph)) < 1) {
+      const ov = Math.min(ghost.x + gw, p.x + pw) - Math.max(ghost.x, p.x);
+      if (ov >= MIN) return true;
+    }
+  }
+  return false;
+}
+
+function drawManualPlates() {
+  const { plates, ghost, selected } = state.manual;
+  if (!plates.length && !ghost) return;
+
+  ctx.save();
+  ctx.lineJoin = 'round';
+
+  // Draw confirmed plates
+  plates.forEach((p, i) => {
+    const { w, h } = plateDims(p.rot);
+    const s  = w2s(p.x, p.y);
+    const sw = w * state.vpScale, sh = h * state.vpScale;
+    const isSel = i === selected;
+    ctx.fillStyle   = isSel ? 'rgba(251,191,36,.35)' : 'rgba(59,130,246,.22)';
+    ctx.strokeStyle = isSel ? '#d97706' : 'rgba(37,99,235,.8)';
+    ctx.lineWidth   = isSel ? 2.5 : 1.5;
+    ctx.fillRect(s.x, s.y, sw, sh);
+    ctx.strokeRect(s.x, s.y, sw, sh);
+    // Milling channel lines
+    drawManualPattern(p, 'rgba(16,185,129,.55)');
+    // Label
+    if (state.vpScale > 0.12) {
+      const cx = s.x + sw / 2, cy = s.y + sh / 2;
+      ctx.fillStyle = isSel ? '#92400e' : '#1e3a5f';
+      ctx.font = `bold ${Math.max(10, state.vpScale * 80)}px system-ui`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(i + 1), cx, cy);
+    }
+  });
+
+  // Draw ghost
+  if (ghost) {
+    const snapped = applySnap(ghost, plates);
+    const gx = snapped.x, gy = snapped.y;
+    const { w: gw, h: gh } = plateDims(ghost.rot);
+    const aabb = { x: gx, y: gy, w: gw, h: gh };
+    const hasOv  = plates.some(p => rectsOverlap(aabb, plateAABB(p)));
+    const contact = hasValidContact({ ...ghost, x: gx, y: gy }, plates);
+    const valid   = !hasOv && contact;
+
+    const ss = w2s(gx, gy);
+    const spw = gw * state.vpScale, sph = gh * state.vpScale;
+    ctx.fillStyle   = valid ? 'rgba(16,185,129,.18)' : 'rgba(239,68,68,.18)';
+    ctx.strokeStyle = valid ? '#059669' : '#dc2626';
+    ctx.lineWidth   = 2;
+    ctx.setLineDash([6, 4]);
+    ctx.fillRect(ss.x, ss.y, spw, sph);
+    ctx.strokeRect(ss.x, ss.y, spw, sph);
+    ctx.setLineDash([]);
+    drawManualPattern({ ...ghost, x: gx, y: gy }, valid ? 'rgba(16,185,129,.5)' : 'rgba(239,68,68,.4)');
+  }
+
+  ctx.restore();
+}
+
+function drawManualPattern(p, color) {
+  const { w, h } = plateDims(p.rot);
+  const s  = w2s(p.x, p.y);
+  const sw = w * state.vpScale, sh = h * state.vpScale;
+  const TRACKS = 4;
+  ctx.strokeStyle = color;
+  ctx.lineWidth   = Math.max(1, state.vpScale * 2);
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  for (let t = 0; t < TRACKS; t++) {
+    const frac = (t + 1) / (TRACKS + 1);
+    if (p.rot % 2 === 0) {
+      // Portrait: vertical tracks
+      const lx = s.x + frac * sw;
+      ctx.moveTo(lx, s.y + 4); ctx.lineTo(lx, s.y + sh - 4);
+    } else {
+      // Landscape: horizontal tracks
+      const ly = s.y + frac * sh;
+      ctx.moveTo(s.x + 4, ly); ctx.lineTo(s.x + sw - 4, ly);
+    }
+  }
+  ctx.stroke();
+}
+
+// ── Manual mode state mutations ──────────────────────
+function setManualMode(active) {
+  state.manual.active = active;
+  if (!active) {
+    state.manual.ghost = null;
+    state.manual.ghostDragging = false;
+    state.manual.dragOffset = null;
+    state.manual.movingIdx = -1;
+  }
+  updateManualUI();
+  render();
+}
+
+function manualAddPlate() {
+  const W = canvas.width / devicePixelRatio;
+  const H = canvas.height / devicePixelRatio;
+  const center = s2w(W / 2, H / 2);
+  const rot = state.manual.ghost?.rot ?? 0;
+  const { w, h } = plateDims(rot);
+  state.manual.ghost = {
+    x: center.x - w / 2,
+    y: center.y - h / 2,
+    rot,
+    type: state.plateType,
+  };
+  state.manual.selected = -1;
+  updateManualUI();
+  render();
+}
+
+function manualRotatePlate() {
+  if (state.manual.ghost) {
+    const g = state.manual.ghost;
+    const { w: ow, h: oh } = plateDims(g.rot);
+    const newRot = (g.rot + 1) % 4;
+    const { w: nw, h: nh } = plateDims(newRot);
+    // keep center
+    state.manual.ghost = { ...g, rot: newRot, x: g.x + (ow - nw) / 2, y: g.y + (oh - nh) / 2 };
+  } else if (state.manual.selected >= 0) {
+    const p = state.manual.plates[state.manual.selected];
+    const { w: ow, h: oh } = plateDims(p.rot);
+    const newRot = (p.rot + 1) % 4;
+    const { w: nw, h: nh } = plateDims(newRot);
+    p.rot = newRot;
+    p.x += (ow - nw) / 2;
+    p.y += (oh - nh) / 2;
+  }
+  updateManualUI();
+  render();
+}
+
+function manualConfirmPlate() {
+  const g = state.manual.ghost;
+  if (!g) return;
+  const snapped = applySnap(g, state.manual.plates);
+  const fp = { ...g, x: snapped.x, y: snapped.y };
+  const { w, h } = plateDims(fp.rot);
+  const aabb = { x: fp.x, y: fp.y, w, h };
+
+  for (const p of state.manual.plates) {
+    if (rectsOverlap(aabb, plateAABB(p))) {
+      alert('Überlappung – Platte kann hier nicht platziert werden.');
+      return;
+    }
+  }
+  if (!hasValidContact(fp, state.manual.plates)) {
+    alert('Keine ausreichende Verbindung (mind. 150 mm Kantenüberlappung).');
+    return;
+  }
+  state.manual.plates.push(fp);
+  state.manual.ghost = null;
+  state.manual.selected = state.manual.plates.length - 1;
+  updateManualUI();
+  render();
+}
+
+function manualDeleteSelected() {
+  if (state.manual.ghost) {
+    state.manual.ghost = null;
+  } else if (state.manual.selected >= 0) {
+    state.manual.plates.splice(state.manual.selected, 1);
+    state.manual.selected = Math.min(state.manual.selected, state.manual.plates.length - 1);
+  }
+  updateManualUI();
+  render();
+}
+
+function manualClearAll() {
+  state.manual.plates = [];
+  state.manual.ghost  = null;
+  state.manual.selected = -1;
+  updateManualUI();
+  render();
+}
+
+function updateManualUI() {
+  const { active, ghost, selected, plates } = state.manual;
+  const hasGhost = !!ghost;
+
+  // Toggle manual-controls visibility
+  ['manual-controls', 'm-manual-controls'].forEach(id => {
+    document.getElementById(id)?.classList.toggle('hidden', !active);
+  });
+  // Mode buttons
+  document.getElementById('btn-auto-mode')  ?.classList.toggle('active', !active);
+  document.getElementById('btn-manual-mode') ?.classList.toggle('active',  active);
+  document.getElementById('m-btn-auto-mode')  ?.classList.toggle('active', !active);
+  document.getElementById('m-btn-manual-mode') ?.classList.toggle('active',  active);
+
+  const msg = hasGhost
+    ? 'Ziehen · Drehen · dann Bestätigen'
+    : selected >= 0
+      ? `Platte ${selected + 1} ausgewählt`
+      : `${plates.length} Platte(n) platziert`;
+  ['manual-status', 'm-manual-status'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = msg;
+  });
+}
+
+// ── Manual pointer integration ─────────────────────
+function handleManualPointerDown(cssX, cssY) {
+  const w = s2w(cssX, cssY);
+  if (state.manual.ghost) {
+    // Start dragging ghost (drag offset = pointer − snapped ghost origin)
+    const snapped = applySnap(state.manual.ghost, state.manual.plates);
+    state.manual.dragOffset = { dx: w.x - snapped.x, dy: w.y - snapped.y };
+    state.manual.ghostDragging = true;
+    return;
+  }
+  // Try to select / start moving a confirmed plate
+  state.manual.movingIdx = -1;
+  state.manual.selected  = -1;
+  for (let i = state.manual.plates.length - 1; i >= 0; i--) {
+    const p = state.manual.plates[i];
+    const { w: pw, h: ph } = plateDims(p.rot);
+    if (w.x >= p.x && w.x <= p.x + pw && w.y >= p.y && w.y <= p.y + ph) {
+      state.manual.selected  = i;
+      state.manual.movingIdx = i;
+      state.manual.dragOffset = { dx: w.x - p.x, dy: w.y - p.y };
+      break;
+    }
+  }
+  updateManualUI();
+  render();
+}
+
+// ════════════════════════════════════════════════════
 // ZOOM LENS
 // ════════════════════════════════════════════════════
 const LENS_ZOOM = 5;
@@ -1546,6 +1891,12 @@ function hitTestVertex(cssX, cssY, radius) {
 function handlePointerDown(cssX, cssY) {
   const W = canvas.width / devicePixelRatio;
 
+  // ── Manual plate mode ──
+  if (state.manual.active) {
+    handleManualPointerDown(cssX, cssY);
+    return;
+  }
+
   if (state.tool === 'move') {
     state.zoomLens = null;
     state.dragging = true;
@@ -1649,6 +2000,21 @@ function handlePointerDown(cssX, cssY) {
 }
 
 function handlePointerMove(cssX, cssY) {
+  // ── Manual plate mode ──
+  if (state.manual.active && state.manual.dragOffset) {
+    const w = s2w(cssX, cssY);
+    if (state.manual.ghostDragging && state.manual.ghost) {
+      state.manual.ghost.x = w.x - state.manual.dragOffset.dx;
+      state.manual.ghost.y = w.y - state.manual.dragOffset.dy;
+    } else if (state.manual.movingIdx >= 0) {
+      const p = state.manual.plates[state.manual.movingIdx];
+      p.x = w.x - state.manual.dragOffset.dx;
+      p.y = w.y - state.manual.dragOffset.dy;
+    }
+    render();
+    return;
+  }
+
   // Vertex drag
   if (state.editVertex) {
     const { roomIdx, vIdx } = state.editVertex;
@@ -1672,6 +2038,15 @@ function handlePointerMove(cssX, cssY) {
 }
 
 function handlePointerUp() {
+  // Manual mode: stop dragging
+  if (state.manual.active) {
+    state.manual.ghostDragging = false;
+    state.manual.movingIdx = -1;
+    state.manual.dragOffset = null;
+    render();
+    return;
+  }
+
   state.dragging = false;
   if (state.editVertex) {
     state.editVertex = null;
